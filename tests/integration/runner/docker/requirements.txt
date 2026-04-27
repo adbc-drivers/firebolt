@@ -1,0 +1,4 @@
+adbc-driver-manager==1.8.0
+pyarrow==22.0.0
+pytest==8.3.4
+requests==2.32.3
