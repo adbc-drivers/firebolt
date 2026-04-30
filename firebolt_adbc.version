@@ -1,0 +1,4 @@
+FIREBOLT_ADBC_1.0 {
+  global: AdbcDriverInit; FireboltAdbcDriverInit;
+  local: *;
+};

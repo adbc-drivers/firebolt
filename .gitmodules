@@ -1,0 +1,15 @@
+[submodule "submodule/curl"]
+	path = submodule/curl
+	url = https://github.com/curl/curl.git
+[submodule "submodule/c-ares"]
+	path = submodule/c-ares
+	url = https://github.com/c-ares/c-ares.git
+[submodule "submodule/nanoarrow"]
+	path = submodule/nanoarrow
+	url = https://github.com/apache/arrow-nanoarrow.git
+[submodule "submodule/googletest"]
+	path = submodule/googletest
+	url = https://github.com/google/googletest.git
+[submodule "submodule/boringssl"]
+	path = submodule/boringssl
+	url = https://github.com/google/boringssl.git

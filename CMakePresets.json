@@ -1,0 +1,50 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "standalone-clang",
+      "displayName": "Standalone Clang (adbc/submodule deps)",
+      "description": "Standalone build with clang-18 and dependencies from adbc/submodule only.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER":   "clang-18",
+        "CMAKE_CXX_COMPILER": "clang++-18",
+        "CMAKE_BUILD_TYPE":   "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "standalone-clang-debug",
+      "displayName": "Standalone Clang Debug (adbc/submodule deps)",
+      "inherits": "standalone-clang",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "standalone-gcc",
+      "displayName": "Standalone GCC (adbc/submodule deps)",
+      "description": "Standalone build using GCC and dependencies from adbc/submodule only.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "standalone-clang",
+      "configurePreset": "standalone-clang"
+    },
+    {
+      "name": "standalone-clang-debug",
+      "configurePreset": "standalone-clang-debug"
+    },
+    {
+      "name": "standalone-gcc",
+      "configurePreset": "standalone-gcc"
+    }
+  ]
+}
