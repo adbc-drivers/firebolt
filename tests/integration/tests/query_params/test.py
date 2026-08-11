@@ -217,6 +217,7 @@ class TestNamedParameters:
     def test_named_parameter(self, cursor) -> None:
         cursor.execute("SELECT param('who') AS v", {"who": "ann"})
         assert cursor.fetchone()[0] == "ann"
+        # lol
 
     def test_named_parameter_needs_a_cast_to_be_numeric(self, cursor) -> None:
         cursor.execute("SELECT param('cutoff')::INT + 1 AS v", {"cutoff": 41})
