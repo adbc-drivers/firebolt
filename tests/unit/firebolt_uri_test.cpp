@@ -17,9 +17,11 @@
 #include "FireboltUri.h"
 
 #include <string>
+#include <variant>
 
 using firebolt::adbc::FireboltUri;
-using firebolt::adbc::isFireboltUri;
+using firebolt::adbc::FireboltUriError;
+using firebolt::adbc::NotFireboltUri;
 using firebolt::adbc::parseFireboltUri;
 
 namespace
@@ -32,11 +34,28 @@ struct Parsed
     std::string message;
 };
 
+// Flattens the result for the tests below, which all pass a firebolt:// URI.
 Parsed parse(const std::string & uri)
 {
     Parsed p{};
-    p.code = parseFireboltUri(uri, p.uri, p.message);
+    const auto result = parseFireboltUri(uri);
+    EXPECT_FALSE(std::holds_alternative<NotFireboltUri>(result)) << uri;
+    if (const auto * error = std::get_if<FireboltUriError>(&result))
+    {
+        p.code = error->code;
+        p.message = error->message;
+    }
+    else if (const auto * parsed = std::get_if<FireboltUri>(&result))
+    {
+        p.code = ADBC_STATUS_OK;
+        p.uri = *parsed;
+    }
     return p;
+}
+
+bool isFireboltUri(const std::string & uri)
+{
+    return !std::holds_alternative<NotFireboltUri>(parseFireboltUri(uri));
 }
 
 } // namespace
@@ -163,7 +182,8 @@ TEST(FireboltUriTest, CredentialsWithUnencodedDelimitersNotEchoed)
     // rest of the secret lands in the path or the query.  It must still be
     // recognised as credentials rather than reported back as a bad path or an
     // unknown parameter.
-    for (const char * uri : {"firebolt://svc:s3c/r3t@localhost/db", "firebolt://svc:s3c?r3t=x@localhost/db", "firebolt://svc:s3c?r%zz3t@localhost"})
+    for (const char * uri :
+         {"firebolt://svc:s3c/r3t@localhost/db", "firebolt://svc:s3c?r3t=x@localhost/db", "firebolt://svc:s3c?r%zz3t@localhost"})
     {
         auto p = parse(uri);
         EXPECT_EQ(p.code, ADBC_STATUS_NOT_IMPLEMENTED) << uri << ": " << p.message;

@@ -64,14 +64,12 @@ namespace
 
 } // namespace
 
-bool isFireboltUri(const std::string & uri)
+std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri)
 {
-    const size_t n = std::strlen(kScheme);
-    return uri.size() >= n && strncasecmp(uri.c_str(), kScheme, n) == 0;
-}
+    const size_t authority_start = std::strlen(kScheme);
+    if (uri.size() < authority_start || strncasecmp(uri.c_str(), kScheme, authority_start) != 0)
+        return NotFireboltUri{};
 
-AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std::string & message)
-{
     // Credentials in the URI are OAuth client_credentials in Firebolt's SDK
     // spec, which this driver does not implement yet.  The whole URI is
     // checked, not just the authority: an unencoded '/' or '?' in a password
@@ -79,19 +77,20 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
     // the URI is echoed back, since it holds a secret.
     if (uri.find('@') != std::string::npos)
     {
-        message = "Database 'uri' carries credentials (user:password@), which this driver does not support yet; "
-                  "remove them and pass a bearer token in 'firebolt.token'. A literal '@' (for example in a "
-                  "database name) is written %40";
-        return ADBC_STATUS_NOT_IMPLEMENTED;
+        return FireboltUriError{
+            ADBC_STATUS_NOT_IMPLEMENTED,
+            "Database 'uri' carries credentials (user:password@), which this driver does not support yet; "
+            "remove them and pass a bearer token in 'firebolt.token'. A literal '@' (for example in a "
+            "database name) is written %40"};
     }
 
     // libcurl reads firebolt:///db as host "db", which is the shape of the
     // older account-based DSN; here an empty authority means no host.
-    const size_t authority_start = std::strlen(kScheme);
     if (uri.size() == authority_start || uri[authority_start] == '/' || uri[authority_start] == '?')
     {
-        message = "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]";
-        return ADBC_STATUS_INVALID_ARGUMENT;
+        return FireboltUriError{
+            ADBC_STATUS_INVALID_ARGUMENT,
+            "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]"};
     }
 
     const std::unique_ptr<CURLU, CurlUrlCleanup> url(curl_url());
@@ -100,8 +99,9 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
     const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
     if (rc != CURLUE_OK)
     {
-        message = std::string("Database 'uri' is not a valid firebolt:// URI (") + curl_url_strerror(rc) + "); got '" + uri + "'";
-        return ADBC_STATUS_INVALID_ARGUMENT;
+        return FireboltUriError{
+            ADBC_STATUS_INVALID_ARGUMENT,
+            std::string("Database 'uri' is not a valid firebolt:// URI (") + curl_url_strerror(rc) + "); got '" + uri + "'"};
     }
     const std::string port = urlPart(url.get(), CURLUPART_PORT);
     const std::string authority = urlPart(url.get(), CURLUPART_HOST) + (port.empty() ? "" : ":" + port);
@@ -112,8 +112,7 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
     const std::string segment = path.empty() ? path : path.substr(1);
     if (segment.find('/') != std::string::npos)
     {
-        message = "Database 'uri' path must be a single database name; got '" + segment + "'";
-        return ADBC_STATUS_INVALID_ARGUMENT;
+        return FireboltUriError{ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' path must be a single database name; got '" + segment + "'"};
     }
     std::string database = percentDecode(segment);
 
@@ -134,8 +133,8 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
         const std::string value = eq == std::string::npos ? "" : percentDecode(pair.substr(eq + 1));
         if (key != "ssl_mode")
         {
-            message = "Unknown query parameter '" + key + "' in database 'uri'; the supported one is ssl_mode";
-            return ADBC_STATUS_NOT_FOUND;
+            return FireboltUriError{
+                ADBC_STATUS_NOT_FOUND, "Unknown query parameter '" + key + "' in database 'uri'; the supported one is ssl_mode"};
         }
         ssl_mode = value;
     }
@@ -148,20 +147,18 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
     else if (ssl_mode == "verify-ca" || ssl_mode == "require")
     {
         // Both skip part of certificate verification, which has no off switch here.
-        message = "ssl_mode=" + ssl_mode
-            + " is not supported: this driver always verifies the certificate and host name. "
-              "Use ssl_mode=verify-full (the default) or ssl_mode=disable";
-        return ADBC_STATUS_NOT_IMPLEMENTED;
+        return FireboltUriError{
+            ADBC_STATUS_NOT_IMPLEMENTED,
+            "ssl_mode=" + ssl_mode
+                + " is not supported: this driver always verifies the certificate and host name. "
+                  "Use ssl_mode=verify-full (the default) or ssl_mode=disable"};
     }
     else
     {
-        message = "ssl_mode must be verify-full or disable; got '" + ssl_mode + "'";
-        return ADBC_STATUS_INVALID_ARGUMENT;
+        return FireboltUriError{ADBC_STATUS_INVALID_ARGUMENT, "ssl_mode must be verify-full or disable; got '" + ssl_mode + "'"};
     }
 
-    out.endpoint = transport + authority;
-    out.database = std::move(database);
-    return ADBC_STATUS_OK;
+    return FireboltUri{transport + authority, std::move(database)};
 }
 
 } // namespace firebolt::adbc

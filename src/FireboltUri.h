@@ -17,6 +17,7 @@
 #include "adbc.h"
 
 #include <string>
+#include <variant>
 
 namespace firebolt::adbc
 {
@@ -34,9 +35,18 @@ struct FireboltUri
     std::string database; // percent-decoded path segment; empty when absent
 };
 
-bool isFireboltUri(const std::string & uri);
+// The uri is not firebolt:// at all; the http(s):// checks decide what it is.
+struct NotFireboltUri
+{
+};
 
-// ADBC_STATUS_OK and `out` filled, or an error status with `message` set.
-AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std::string & message);
+// A firebolt:// uri that cannot be used, with the status to report it under.
+struct FireboltUriError
+{
+    AdbcStatusCode code;
+    std::string message;
+};
+
+std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri);
 
 } // namespace firebolt::adbc

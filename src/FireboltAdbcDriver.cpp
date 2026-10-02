@@ -36,6 +36,7 @@
 #include <stdexcept>
 #include <string>
 #include <strings.h>
+#include <variant>
 
 #include <curl/curl.h>
 
@@ -352,26 +353,24 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     // firebolt:// is the driver's own scheme (the one a driver manager maps to
     // this driver); it resolves to the HTTP endpoint every request goes to.  The
     // path names the database, and an explicit firebolt.database option wins.
-    const bool from_firebolt_uri = isFireboltUri(fdb->url);
-    if (from_firebolt_uri)
+    std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parsed;
+    try
     {
-        FireboltUri parsed;
-        std::string message;
-        AdbcStatusCode rc = ADBC_STATUS_OK;
-        try
-        {
-            rc = parseFireboltUri(fdb->url, parsed, message);
-        }
-        catch (const std::exception & ex)
-        {
-            // Only allocation fails here, but nothing may unwind into the driver manager.
-            return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
-        }
-        if (rc != ADBC_STATUS_OK)
-            return SetError(error, rc, message);
-        fdb->url = std::move(parsed.endpoint);
+        parsed = parseFireboltUri(fdb->url);
+    }
+    catch (const std::exception & ex)
+    {
+        // Only allocation fails here, but nothing may unwind into the driver manager.
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
+    if (const auto * uri_error = std::get_if<FireboltUriError>(&parsed))
+        return SetError(error, uri_error->code, uri_error->message);
+    const bool from_firebolt_uri = std::holds_alternative<FireboltUri>(parsed);
+    if (auto * uri = std::get_if<FireboltUri>(&parsed))
+    {
+        fdb->url = std::move(uri->endpoint);
         if (fdb->database.empty())
-            fdb->database = std::move(parsed.database);
+            fdb->database = std::move(uri->database);
     }
 
     // Validate the endpoint here rather than letting libcurl reject it on the
