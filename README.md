@@ -402,7 +402,7 @@ The four database options, in full:
 
 | Key | Required | Meaning |
 |-----|----------|---------|
-| `uri` | **yes** | Engine HTTP endpoint, e.g. `http://localhost:3473`. |
+| `uri` | **yes** | `firebolt://<host>[:<port>]/[<database>]` (add `?ssl_mode=disable` for plaintext), or the engine's HTTP endpoint, e.g. `http://localhost:3473`. See [OPTIONS.md](OPTIONS.md#firebolt-uris). |
 | `firebolt.database` | no | Database name; sent as `database=` on every request. |
 | `firebolt.token` | no | Bearer token. Omit for an engine with authentication disabled. |
 | `firebolt.timeout_sec` | no | Request timeout in whole seconds; `0` (the default) disables it. |
@@ -420,7 +420,8 @@ today's names to the canonical ones is in
 | Symptom | Cause and fix |
 |---------|---------------|
 | `Database 'uri' option is required` | No `uri` in `db_kwargs`. |
-| `Database 'uri' must start with http:// or https://` | You passed a bare host (`localhost:3473`) or a `firebolt://` URI. This driver takes the engine's HTTP endpoint. |
+| `Database 'uri' must start with firebolt://, http:// or https://` | You passed a bare host (`localhost:3473`). Add a scheme. |
+| `Database 'uri' asks for TLS (ssl_mode defaults to verify-full) …` | A `firebolt://` URI defaults to TLS and this self-built driver has none (`-DWITH_SSL=OFF`). Add `?ssl_mode=disable` for a plaintext engine, or rebuild with the default `WITH_SSL=ON`. |
 | `... is https:// but this driver was built without TLS support` | A self-built driver configured with `-DWITH_SSL=OFF`. Released builds have TLS; rebuild with the default `WITH_SSL=ON`. |
 | `No CA certificate bundle found for https://` | The host has no system CA certificates (common in minimal containers). Install them (`ca-certificates` on Debian/Ubuntu/RHEL), or set `firebolt.ssl_certificate_path` to a PEM bundle. |
 | `IO: curl error: SSL peer certificate or SSH remote key was not OK` | The server's certificate does not chain to a trusted CA, or its name does not match the `uri` host. For a private CA, point `firebolt.ssl_certificate_path` at its PEM file. |

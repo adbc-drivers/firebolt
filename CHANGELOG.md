@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format follows
   Debian, RHEL and SUSE locations — or named with the new
   `firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
   with a message naming every path tried.
+- **`firebolt://` URIs.** `uri` accepts `firebolt://<host>[:<port>]/[<database>]`, the
+  shape of Firebolt's SDK connection string: the path names the database (an explicit
+  `firebolt.database` wins) and `ssl_mode` picks the transport — `verify-full`, the
+  default, or `disable` for plaintext.
 
 ### Changed
 

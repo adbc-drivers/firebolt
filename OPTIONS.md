@@ -41,18 +41,41 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 
 | Key | Required | Default | Meaning |
 |-----|----------|---------|---------|
-| `uri` | **yes** | — | The engine's HTTP endpoint, e.g. `http://localhost:3473`. Validated at `Init`: it must start with `http://` or `https://` (`https://` needs a TLS build, which is what ships). Used verbatim, so a path is preserved (`http://host/query` stays `/query`) and query parameters are appended to whatever is already there. |
+| `uri` | **yes** | — | Where the engine is: a `firebolt://` URI (below) or its HTTP endpoint, e.g. `http://localhost:3473`. Validated at `Init` (`https://`, and the `firebolt://` default, need a TLS build, which is what ships). An `http(s)://` endpoint is used verbatim, so a path is preserved (`http://host/query` stays `/query`) and query parameters are appended to whatever is already there. |
 | `firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
 | `firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
 | `firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
 | `firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
+
+### `firebolt://` URIs
+
+```
+firebolt://<host>[:<port>]/[<database>][?ssl_mode=<mode>]
+```
+
+The shape of Firebolt's SDK connection string. `Init` resolves it to the HTTP
+endpoint every request goes to:
+
+| Part | Meaning |
+|------|---------|
+| `<host>[:<port>]` | The engine. IPv6 literals go in brackets: `firebolt://[::1]:3473`. |
+| `/<database>` | Optional database name, percent-decoded (`my%20db`). One path segment only. `firebolt.database`, when also set, takes precedence. |
+| `ssl_mode=verify-full` | The default: `https://`, verifying the certificate chain and host name. Needs a build with TLS. |
+| `ssl_mode=disable` | Plaintext `http://`. For a local engine with authentication disabled. |
+
+So `firebolt://localhost:3473/playground?ssl_mode=disable` is
+`http://localhost:3473` with `firebolt.database=playground`.
 
 Errors:
 
 | Situation | Status |
 |-----------|--------|
 | `uri` missing at `Init` | `ADBC_STATUS_INVALID_ARGUMENT` |
-| `uri` has no scheme, or a scheme other than http/https | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `uri` has no scheme, or a scheme other than firebolt/http/https | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `firebolt://` URI with no host, a nested path, a malformed `%` escape, or an unknown `ssl_mode` | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `firebolt://` URI with `ssl_mode=verify-ca` or `require` (verification cannot be relaxed) | `ADBC_STATUS_NOT_IMPLEMENTED` |
+| `firebolt://` URI with credentials (`user:password@`) | `ADBC_STATUS_NOT_IMPLEMENTED` |
+| `firebolt://` URI with a query parameter other than `ssl_mode` | `ADBC_STATUS_NOT_FOUND` |
 | `uri` is `https://` on a build without TLS | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` is `https://` and no system CA bundle exists | `ADBC_STATUS_INVALID_STATE` |
@@ -316,7 +339,7 @@ today's names are stable and which are already superseded.
 
 | Today | Canonical | Note |
 |-------|-----------|------|
-| `uri` | `host` | Plus `ssl_mode` for the transport, instead of encoding it in the scheme. |
+| `uri` | `host` | A `firebolt://` URI already carries the host, database and `ssl_mode`; the `http(s)://` form encodes the transport in the scheme instead. |
 | `firebolt.database` | `database` | Rename only. |
 | `firebolt.timeout_sec` | `query_timeout` | Rename only. |
 | `firebolt.token` | *(none)* | The spec has no connection field for a raw JWT: it comes from the `FIREBOLT_TOKEN` environment variable. This key will be removed. |
@@ -324,7 +347,7 @@ today's names are stable and which are already superseded.
 | — | `engine` | Engine selector, sent per request. Not implemented yet. |
 | — | `authorization_server` | Which discovered authorization server to use. Not implemented yet. |
 | `firebolt.ssl_certificate_path` | `ssl_certificate_path` | Rename only. |
-| — | `ssl_mode` | Not implemented: TLS follows the `uri` scheme and always verifies (`verify-full`). |
+| — | `ssl_mode` | Accepted inside a `firebolt://` URI (`verify-full`, the default, or `disable`), not yet as an option of its own; with an `http(s)://` `uri` the scheme decides. Verification cannot be relaxed. |
 | — | `use_token_cache`, `connection_timeout`, `max_retries`, `user_agent` | Not implemented yet. |
 
 When the migration lands, the current names are replaced rather than aliased.

@@ -18,6 +18,7 @@
 #include "FireboltAdbcDatabase.h"
 #include "FireboltAdbcMetadata.h"
 #include "FireboltAdbcStatement.h"
+#include "FireboltUri.h"
 #include "HttpClient.h"
 #include "IngestSqlBuilder.h"
 #include "QueryParameters.h"
@@ -348,6 +349,22 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     if (fdb->url.empty())
         return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' option is required");
 
+    // firebolt:// is the driver's own scheme (the one a driver manager maps to
+    // this driver); it resolves to the HTTP endpoint every request goes to.  The
+    // path names the database, and an explicit firebolt.database option wins.
+    const bool from_firebolt_uri = isFireboltUri(fdb->url);
+    if (from_firebolt_uri)
+    {
+        FireboltUri parsed;
+        std::string message;
+        const AdbcStatusCode rc = parseFireboltUri(fdb->url, parsed, message);
+        if (rc != ADBC_STATUS_OK)
+            return SetError(error, rc, message);
+        fdb->url = std::move(parsed.endpoint);
+        if (fdb->database.empty())
+            fdb->database = std::move(parsed.database);
+    }
+
     // Validate the endpoint here rather than letting libcurl reject it on the
     // first query, where the failure reads as a network error ("Unsupported
     // protocol") with nothing pointing back at the option that caused it.
@@ -357,14 +374,17 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
         return SetError(
             error,
             ADBC_STATUS_INVALID_ARGUMENT,
-            "Database 'uri' must start with http:// or https://; got '" + fdb->url
-                + "'. Pass the engine's HTTP endpoint, for example http://localhost:3473");
+            "Database 'uri' must start with firebolt://, http:// or https://; got '" + fdb->url
+                + "'. For example firebolt://localhost:3473/my_db?ssl_mode=disable or http://localhost:3473");
     if (is_https && !curlSupportsTls())
         return SetError(
             error,
             ADBC_STATUS_INVALID_ARGUMENT,
-            "Database 'uri' is https:// but this driver was built without TLS support, so it can only reach plaintext http:// "
-            "endpoints. Use an http:// endpoint, or rebuild the driver with -DWITH_SSL=ON.");
+            from_firebolt_uri
+                ? "Database 'uri' asks for TLS (ssl_mode defaults to verify-full) but this driver was built without TLS support. "
+                  "Add ?ssl_mode=disable to reach a plaintext endpoint, or rebuild the driver with -DWITH_SSL=ON."
+                : "Database 'uri' is https:// but this driver was built without TLS support, so it can only reach plaintext http:// "
+                  "endpoints. Use an http:// endpoint, or rebuild the driver with -DWITH_SSL=ON.");
 
     // Pick the CA bundle now: the build disables curl's baked-in path, which
     // names the builder image's layout rather than this host's.  A configured

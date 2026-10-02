@@ -17,6 +17,7 @@
 #include "ArrowIpcStream.h"
 #include "DescribeParameters.h"
 #include "FireboltAdbcConnection.h"
+#include "FireboltAdbcDatabase.h"
 #include "FireboltAdbcStatement.h"
 #include "IngestSqlBuilder.h"
 #include "QueryParameters.h"
@@ -424,7 +425,7 @@ TEST(DatabaseInitTest, UnsupportedSchemeRejected)
 {
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithUri(driver, "firebolt://localhost:3473/db", &error), ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(InitWithUri(driver, "ftp://localhost:3473/db", &error), ADBC_STATUS_INVALID_ARGUMENT);
     if (error.release)
         error.release(&error);
 }
@@ -494,6 +495,77 @@ TEST(DatabaseInitTest, MissingSslCertificatePathRejectedAtInit)
         EXPECT_NE(std::string(error.message).find("/no/such/ca.pem"), std::string::npos) << error.message;
     if (error.release)
         error.release(&error);
+}
+
+namespace
+{
+
+// DatabaseNew + uri (+ optional firebolt.database) + Init, keeping the database
+// alive so the test can inspect what Init made of the URI.
+struct InitedDatabase
+{
+    AdbcDriver driver = InitDriver();
+    AdbcDatabase db{};
+    AdbcError error = ADBC_ERROR_INIT;
+    AdbcStatusCode code = ADBC_STATUS_OK;
+
+    explicit InitedDatabase(const char * uri, const char * database_option = nullptr)
+    {
+        EXPECT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
+        EXPECT_EQ(driver.DatabaseSetOption(&db, "uri", uri, &error), ADBC_STATUS_OK);
+        if (database_option)
+            EXPECT_EQ(driver.DatabaseSetOption(&db, "firebolt.database", database_option, &error), ADBC_STATUS_OK);
+        code = driver.DatabaseInit(&db, &error);
+    }
+    ~InitedDatabase()
+    {
+        driver.DatabaseRelease(&db, nullptr);
+        if (error.release)
+            error.release(&error);
+    }
+    firebolt::adbc::FireboltDatabase & fdb() { return *static_cast<firebolt::adbc::FireboltDatabase *>(db.private_data); }
+};
+
+} // namespace
+
+TEST(DatabaseInitTest, FireboltUriResolvedToHttpEndpoint)
+{
+    InitedDatabase d("firebolt://localhost:3473/analytics?ssl_mode=disable");
+    ASSERT_EQ(d.code, ADBC_STATUS_OK) << (d.error.message ? d.error.message : "");
+    EXPECT_EQ(d.fdb().url, "http://localhost:3473");
+    EXPECT_EQ(d.fdb().database, "analytics");
+}
+
+TEST(DatabaseInitTest, DatabaseOptionTakesPrecedenceOverUriPath)
+{
+    InitedDatabase d("firebolt://localhost:3473/from_uri?ssl_mode=disable", "from_option");
+    ASSERT_EQ(d.code, ADBC_STATUS_OK) << (d.error.message ? d.error.message : "");
+    EXPECT_EQ(d.fdb().database, "from_option");
+}
+
+TEST(DatabaseInitTest, MalformedFireboltUriRejected)
+{
+    InitedDatabase d("firebolt://localhost/db?ssl_mode=sometimes");
+    EXPECT_EQ(d.code, ADBC_STATUS_INVALID_ARGUMENT);
+}
+
+TEST(DatabaseInitTest, FireboltUriDefaultsToTls)
+{
+    // ssl_mode defaults to verify-full.  On a build without TLS that cannot
+    // work, and the error should point at the way to ask for plaintext.
+    InitedDatabase d("firebolt://localhost:3473/db");
+    if (CurlHasTls())
+    {
+        ASSERT_EQ(d.code, ADBC_STATUS_OK);
+        EXPECT_EQ(d.fdb().url, "https://localhost:3473");
+    }
+    else
+    {
+        EXPECT_EQ(d.code, ADBC_STATUS_INVALID_ARGUMENT);
+        ASSERT_NE(d.error.message, nullptr);
+        EXPECT_NE(std::string(d.error.message).find("ssl_mode=disable"), std::string::npos)
+            << "error should say how to connect without TLS, got: " << d.error.message;
+    }
 }
 
 // ============================================================

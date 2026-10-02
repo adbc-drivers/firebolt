@@ -298,6 +298,7 @@ add_library(adbc_driver_firebolt SHARED
     src/QueryParameters.cpp
     src/DescribeParameters.cpp
     src/TlsConfig.cpp
+    src/FireboltUri.cpp
 )
 
 set_target_properties(adbc_driver_firebolt PROPERTIES
@@ -387,6 +388,8 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         tests/unit/adbc_driver_test.cpp
         tests/unit/session_state_test.cpp
         tests/unit/tls_config_test.cpp
+        tests/unit/firebolt_uri_test.cpp
+        src/FireboltUri.cpp
         src/ArrowIpcStream.cpp
         src/IngestSqlBuilder.cpp
         src/HttpHeaderParse.cpp

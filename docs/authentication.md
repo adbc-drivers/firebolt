@@ -138,7 +138,7 @@ Tracked separately; none of it is implemented here yet.
 
 | Gap | Consequence |
 |-----|-------------|
-| No `ssl_mode` | TLS follows the `uri` scheme: `https://` always verifies the peer (`verify-full`), `http://` is plaintext. A token is not refused over `http://`. |
+| `ssl_mode` only inside a `firebolt://` URI | There it takes `verify-full` (the default) or `disable`; `verify-ca` and `require` are refused. With an `http(s)://` `uri`, TLS follows the scheme: `https://` always verifies the peer (`verify-full`), `http://` is plaintext. A token is not refused over plaintext. |
 | No `/.well-known/firebolt` discovery | The driver cannot tell whether an engine wants authentication; you have to know. |
 | No `client_credentials` grant | No `username` / `password`; you must obtain a token out of band. |
 | No `FIREBOLT_TOKEN` support | You have to read the variable yourself and pass `firebolt.token`. |

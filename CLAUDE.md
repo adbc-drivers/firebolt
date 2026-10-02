@@ -67,6 +67,7 @@ private keys, including test material: generate test certificates at run time.
 │   ├── FireboltAdbcConnection.h           # FireboltConnection struct; owns HttpClient + session state
 │   ├── FireboltAdbcStatement.h            # FireboltStatement struct; SQL, bound Arrow batches, ingest target
 │   ├── FireboltAdbcMetadata.h/.cpp        # GetInfo, GetTableTypes, GetTableSchema, GetObjects
+│   ├── FireboltUri.h/.cpp                 # firebolt:// URI → HTTP endpoint + database (ssl_mode = transport)
 │   ├── HttpClient.h/.cpp                  # libcurl wrapper: query POST, multipart insert, session headers
 │   ├── HttpHeaderParse.h/.cpp             # session-state response header parsing
 │   ├── IngestSqlBuilder.h/.cpp            # identifier quoting, Arrow→Firebolt types, ingest DDL/DML
@@ -94,7 +95,8 @@ private keys, including test material: generate test certificates at run time.
 │
 └── tests/
     ├── unit/
-    │   └── adbc_driver_test.cpp           # Google Test unit tests (no server needed)
+    │   ├── adbc_driver_test.cpp           # Google Test unit tests (no server needed)
+    │   └── firebolt_uri_test.cpp          # firebolt:// URI parsing
     └── integration/                       # pytest harness — runs inside a runner container
         ├── runner.py                      # spins up runner image + 1-node Firebolt engine,
         │                                  #   exec's pytest. Args: --engine-image, --adbc-binary
@@ -118,6 +120,7 @@ private keys, including test material: generate test certificates at run time.
             ├── decimal_type/test.py       # DECIMAL literals, arithmetic, precision/scale
             ├── dml/test.py                # DDL, INSERT/SELECT, aggregates, type roundtrip
             ├── driver_loading/test.py     # entry-point names a driver manager resolves
+            ├── firebolt_uri/test.py       # connecting with firebolt://host/db?ssl_mode=disable
             ├── ingest/test.py             # bulk ingest via dbapi Cursor.adbc_ingest()
             ├── ingest_low_level/test.py   # bulk ingest via set_options + bind_stream
             ├── option_names/test.py       # firebolt.* keys through the driver manager
@@ -364,7 +367,7 @@ error status, and the full Arrow→Firebolt type mapping. Summary only here.
 
 | Key | Set on | Description |
 |-----|--------|-------------|
-| `"uri"` | Database | HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` verifies the peer against the CA bundle chosen at `Init`. |
+| `"uri"` | Database | `firebolt://host[:port]/[db]?ssl_mode=…` (resolved to the HTTP endpoint at `Init` by `src/FireboltUri.cpp`; the path is the database, an explicit `firebolt.database` wins) or the HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` verifies the peer against the CA bundle chosen at `Init`. |
 | `"firebolt.token"` | Database, Connection | Bearer token — omit for an auth-disabled engine. Per-connection when set on the connection. Contradicts the SDK auth spec (a raw JWT belongs in `FIREBOLT_TOKEN`) and will be removed; see `docs/authentication.md`. |
 | `"firebolt.database"` | Database | Database name (appended as `?database=…` query param) |
 | `"firebolt.ssl_certificate_path"` | Database | PEM CA bundle for `https://`; default is `SSL_CERT_FILE`, then the distro bundle paths |
@@ -416,7 +419,7 @@ and the RFC 8707 `resource` bound to the instance. Token precedence is `FIREBOLT
 Transport is a separate `ssl_mode` parameter defaulting to `verify-full`.
 
 This driver implements **none** of that yet: no discovery, no `client_credentials`, no
-`FIREBOLT_TOKEN`, no `ssl_mode` (TLS ships, always `verify-full`), and canonical parameter
+`FIREBOLT_TOKEN`, `ssl_mode` only inside a `firebolt://` URI (`verify-full`/`disable`; TLS ships, always verified), and canonical parameter
 names (`host`, `database`, `query_timeout`, … per
 `specs/schemas/connection-parameters.v1.json`) not yet adopted. `docs/authentication.md`
 documents the gap for users; the rename, when it happens, replaces the current
