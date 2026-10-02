@@ -32,6 +32,46 @@ ADBC_DRIVER_PATH = os.environ.get(
     ),
 )
 
+# What the engine fixtures (conn, dbapi_conn, cursor, run_query, …) connect to:
+#   core (default)  the 1-node local engine this suite starts in Docker
+#   fb2             FB2 only: an engine in a Firebolt 2.0 SaaS account, through FB2
+#                   SaaS (Legacy) mode.  Account, engine and credentials come from
+#                   FIREBOLT_FB2_* (see fb2_db_kwargs) and are never committed;
+#                   runner.py forwards them by name, so their values do not reach
+#                   its logged command line.  The session runs in a database of its
+#                   own (fb2_database), created and dropped by the suite.
+# The mock-server suites are local either way.
+TEST_TARGET = os.environ.get("FIREBOLT_TEST_TARGET", "core")
+if TEST_TARGET not in ("core", "fb2"):
+    raise pytest.UsageError(
+        f"FIREBOLT_TEST_TARGET must be 'core' or 'fb2', got '{TEST_TARGET}'"
+    )
+
+FB2_REQUIRED_ENV = (
+    "FIREBOLT_FB2_CLIENT_ID",
+    "FIREBOLT_FB2_CLIENT_SECRET",
+    "FIREBOLT_FB2_ACCOUNT",
+    "FIREBOLT_FB2_ENGINE",
+)
+
+
+def fb2_configured() -> bool:
+    return all(os.environ.get(name) for name in FB2_REQUIRED_ENV)
+
+
+def fb2_db_kwargs(**overrides) -> dict:
+    """FB2 only: database options for the configured Firebolt 2.0 SaaS engine."""
+    kwargs = {
+        "username": os.environ.get("FIREBOLT_FB2_CLIENT_ID", ""),
+        "password": os.environ.get("FIREBOLT_FB2_CLIENT_SECRET", ""),
+        "firebolt.account": os.environ.get("FIREBOLT_FB2_ACCOUNT", ""),
+        "firebolt.engine": os.environ.get("FIREBOLT_FB2_ENGINE", ""),
+        "firebolt.environment": os.environ.get("FIREBOLT_FB2_ENVIRONMENT") or "app",
+        "firebolt.timeout_sec": "120",
+    }
+    kwargs.update(overrides)
+    return {k: v for k, v in kwargs.items() if v is not None}
+
 
 @pytest.fixture(scope="session")
 def started_engine():
@@ -53,25 +93,58 @@ def server_url(started_engine):
     return f"http://{node.pg_host}:{firebolt_engine.QUERY_PORT}"
 
 
+def _fb2_execute(sql: str) -> None:
+    with dbapi.connect(
+        driver=ADBC_DRIVER_PATH, db_kwargs=fb2_db_kwargs(), autocommit=True
+    ) as c:
+        with c.cursor() as cur:
+            cur.execute(sql)
+
+
+@pytest.fixture(scope="session")
+def fb2_database():
+    """FB2 only: a database of this session's own, adbc_test_<random>, dropped at
+    the end, so runs never share or leave behind state in the account."""
+    if not fb2_configured():
+        pytest.fail("FB2 tests need " + ", ".join(FB2_REQUIRED_ENV), pytrace=False)
+    name = f"adbc_test_{uuid.uuid4().hex[:8]}"
+    _fb2_execute(f'CREATE DATABASE "{name}"')
+    try:
+        yield name
+    finally:
+        _fb2_execute(f'DROP DATABASE IF EXISTS "{name}"')
+
+
+@pytest.fixture(scope="session")
+def engine_db_kwargs(request):
+    """Database options for the engine under test (see TEST_TARGET)."""
+    if TEST_TARGET == "fb2":
+        return fb2_db_kwargs(
+            **{"firebolt.database": request.getfixturevalue("fb2_database")}
+        )
+    # Requested lazily, so the fb2 target never starts the local engine.
+    return {"uri": request.getfixturevalue("server_url")}
+
+
 @pytest.fixture
-def conn(server_url):
+def conn(engine_db_kwargs):
     """A fresh AdbcConnection for each test."""
     with (
-        adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, uri=server_url) as db,
+        adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, **engine_db_kwargs) as db,
         adbc_driver_manager.AdbcConnection(db) as connection,
     ):
         yield connection
 
 
 @pytest.fixture
-def dbapi_conn(server_url):
+def dbapi_conn(engine_db_kwargs):
     """A DBAPI-style Connection that opens its own AdbcDatabase + AdbcConnection.
 
     autocommit=True so each adbc_ingest() commits immediately and the data
     becomes visible to the read fixtures (which use a separate AdbcConnection).
     """
     with dbapi.connect(
-        driver=ADBC_DRIVER_PATH, db_kwargs={"uri": server_url}, autocommit=True
+        driver=ADBC_DRIVER_PATH, db_kwargs=engine_db_kwargs, autocommit=True
     ) as c:
         yield c
 
