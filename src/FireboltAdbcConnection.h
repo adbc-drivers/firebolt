@@ -24,9 +24,19 @@ namespace firebolt::adbc
 struct FireboltDatabase;
 class HttpClient;
 
+namespace fb2
+{
+    class Fb2LegacyMode;
+}
+
 struct FireboltConnection
 {
     FireboltDatabase * db = nullptr; // borrowed
+    // The endpoint this connection sends to.  Starts as the database's URL; a
+    // server may move it (Firebolt-Update-Endpoint, honoured in FB2 mode only).
+    std::string url;
+    // FB2 SaaS (Legacy) mode hook: the database's mode, null on the Core path.
+    std::shared_ptr<fb2::Fb2LegacyMode> fb2;
     std::unique_ptr<HttpClient> http;
     std::unordered_map<std::string, std::string> session_params;
     // Per-connection bearer token.  Initialised from FireboltDatabase::token at

@@ -25,6 +25,7 @@
 #include "ScopeGuard.h"
 #include "TlsConfig.h"
 #include "adbc.h"
+#include "fb2/Fb2LegacyMode.h"
 
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow_ipc.hpp>
@@ -68,7 +69,7 @@ static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::st
 static AdbcStatusCode HttpRespToStatus(const HttpResponse & resp, AdbcError * error)
 {
     if (resp.curl_code != CURLE_OK)
-        return SetError(error, ADBC_STATUS_IO, "curl error: " + std::string(curl_easy_strerror(resp.curl_code)));
+        return SetError(error, ADBC_STATUS_IO, resp.error_message);
     if (resp.http_code == 401 || resp.http_code == 403)
         return SetError(error, ADBC_STATUS_UNAUTHORIZED, "HTTP " + std::to_string(resp.http_code) + ": " + resp.error_message);
     if (resp.http_code >= 400 && resp.http_code < 500)
@@ -102,6 +103,9 @@ static bool curlSupportsTls()
 static void ApplySessionUpdates(FireboltConnection * conn, const HttpResponse & resp)
 {
     applySessionUpdatesIfSuccess(conn->session_params, resp);
+    // Only FB2 mode ever sets a new endpoint (Firebolt-Update-Endpoint).
+    if (resp.isSuccess() && !resp.new_endpoint.empty())
+        conn->url = resp.new_endpoint;
 }
 
 // ADBC 1.1.0 predates this option, so the vendored adbc.h does not declare it, but
@@ -286,6 +290,16 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
             error,
             ADBC_STATUS_INVALID_STATE,
             "Option '" + k + "' must be set before AdbcDatabaseInit; open a new database to use another value");
+    if (fb2::isOption(k))
+    {
+        // FB2 SaaS (Legacy) mode hook: the mode owns its keys and checks them at Init.
+        if (fdb->initialized)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Option '" + k + "' must be set before AdbcDatabaseInit");
+        if (!fdb->fb2)
+            fdb->fb2 = std::make_shared<fb2::Fb2LegacyMode>();
+        fb2::Status s = fdb->fb2->setOption(k, v);
+        return s.ok() ? ADBC_STATUS_OK : RejectOption(fdb, error, s.code, s.message);
+    }
     if (k == "uri")
         fdb->url = v;
     else if (k == "firebolt.token")
@@ -337,6 +351,30 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
     return ADBC_STATUS_OK;
 }
 
+// FB2 SaaS (Legacy) mode hook: DatabaseInit for a database with FB2 options.
+// Every FB2 host is https-only, so TLS and a CA bundle are prerequisites; the
+// mode then validates its options, authenticates and resolves the engine URL.
+static AdbcStatusCode InitFb2LegacyMode(FireboltDatabase * fdb, AdbcError * error)
+{
+    if (!curlSupportsTls())
+        return SetError(
+            error, ADBC_STATUS_INVALID_ARGUMENT, "FB2 SaaS mode needs TLS, but this driver was built without it (-DWITH_SSL=OFF)");
+    CaBundleResult ca = resolveCaBundle(fdb->ssl_certificate_path);
+    if (!ca.error.empty())
+        return SetError(error, ca.configuration_error ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_INVALID_STATE, ca.error);
+    fdb->ca_bundle_path = ca.path;
+
+    initCurl();
+    fb2::InitInputs inputs{fdb->url, fdb->token, fdb->database, fdb->ca_bundle_path, fdb->timeout_sec};
+    std::string endpoint;
+    fb2::Status s = fdb->fb2->init(inputs, endpoint);
+    if (!s.ok())
+        return SetError(error, s.code, s.message);
+    fdb->url = endpoint;
+    fdb->initialized = true;
+    return ADBC_STATUS_OK;
+}
+
 static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
 {
     if (!db || !db->private_data)
@@ -346,6 +384,10 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     // An option rejected before Init is reported here — see RejectOption.
     if (!fdb->option_error.empty())
         return SetError(error, fdb->option_error_code, fdb->option_error);
+
+    // FB2 SaaS (Legacy) mode hook: the mode resolves the endpoint itself.
+    if (fdb->fb2 && fdb->fb2->requested())
+        return InitFb2LegacyMode(fdb, error);
 
     if (fdb->url.empty())
         return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' option is required");
@@ -511,6 +553,10 @@ static AdbcStatusCode ConnectionInit(AdbcConnection * conn, AdbcDatabase * db, A
         // connection only mutates fc->token, never fdb->token.
         if (fc->token.empty())
             fc->token = fdb->token;
+        fc->url = fdb->url;
+        // FB2 SaaS (Legacy) mode hook: connections share the database's mode.
+        if (fdb->fb2 && fdb->fb2->requested())
+            fc->fb2 = fdb->fb2;
         // HttpClient borrows a reference to this FireboltConnection and
         // reads token / url / database / timeout live on every request.
         // No need to seed or replay anything — the connection is the

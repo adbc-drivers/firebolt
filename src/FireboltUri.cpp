@@ -16,6 +16,8 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -152,6 +154,31 @@ catch (...)
     // Only allocation can fail.  The message fits in std::string's inline
     // buffer, so building this error does not allocate and cannot throw again.
     return FireboltUriError{ADBC_STATUS_INTERNAL, "out of memory"};
+}
+
+std::optional<ParsedUrl> parseUrl(const std::string & url) noexcept
+try
+{
+    const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> parsed(curl_url(), &curl_url_cleanup);
+    if (!parsed || curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), CURLU_NON_SUPPORT_SCHEME) != CURLUE_OK)
+        return std::nullopt;
+    const auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return s;
+    };
+    std::optional<std::string> scheme = urlPart(parsed.get(), CURLUPART_SCHEME);
+    std::optional<std::string> host = urlPart(parsed.get(), CURLUPART_HOST);
+    if (!scheme || !host || host->empty())
+        return std::nullopt;
+    return ParsedUrl{
+        lower(*scheme),
+        lower(*host),
+        urlPart(parsed.get(), CURLUPART_PORT, CURLU_DEFAULT_PORT).value_or(""),
+        urlPart(parsed.get(), CURLUPART_USER).has_value()};
+}
+catch (...)
+{
+    return std::nullopt;
 }
 
 } // namespace firebolt::adbc

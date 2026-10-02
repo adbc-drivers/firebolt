@@ -16,6 +16,7 @@
 
 #include "adbc.h"
 
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -49,5 +50,18 @@ struct FireboltUriError
 
 // Never throws: running out of memory comes back as a FireboltUriError.
 std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept;
+
+// An absolute URL as libcurl reads it, for checks on where a request will go.
+struct ParsedUrl
+{
+    std::string scheme; // lower case
+    std::string host; // lower case; an IPv6 literal keeps its brackets
+    std::string port; // the explicit port, or the scheme's default one
+    bool has_userinfo = false; // user[:password]@ before the host
+};
+
+// nullopt when libcurl does not accept `url` as an absolute URL with a host, or
+// on allocation failure.  Never throws.
+std::optional<ParsedUrl> parseUrl(const std::string & url) noexcept;
 
 } // namespace firebolt::adbc

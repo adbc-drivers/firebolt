@@ -50,6 +50,9 @@ All notable changes to this project are documented here. The format follows
 - **Driver options are named `firebolt.*`** (`firebolt.token`, `firebolt.database`,
   `firebolt.timeout_sec`, `firebolt.ssl_certificate_path`) instead of `adbc.firebolt.*`,
   per the Foundry option-naming rule.
+- **FB2 only:** `username` and `password` are no longer accepted and ignored. They are
+  FB2 SaaS (Legacy) mode credentials now, so setting them without
+  `firebolt.account` fails `AdbcDatabaseInit` with `ADBC_STATUS_INVALID_ARGUMENT`.
 
 ## [0.1.1] - 2026-08-11
 

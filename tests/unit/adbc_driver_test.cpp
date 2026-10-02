@@ -311,9 +311,11 @@ TEST(DatabaseOptionTest, NonNamespacedOptionStillAccepted)
     // Keys outside the firebolt.* namespace are set by the driver manager
     // itself and by callers passing future connection parameters; they must
     // keep being accepted so that rejecting typos does not break them.
+    // (`username`/`password` are not among them: they are FB2 SaaS (Legacy) mode
+    // credentials, which select that mode.)
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "username", "svc", &error), ADBC_STATUS_OK);
+    EXPECT_EQ(InitWithOption(driver, "max_retries", "3", &error), ADBC_STATUS_OK);
     EXPECT_EQ(InitWithOption(driver, "adbc.connection.catalog", "warehouse", &error), ADBC_STATUS_OK);
     if (error.release)
         error.release(&error);

@@ -35,6 +35,8 @@ struct HttpResponse
     std::unordered_map<std::string, std::string> update_params;
     std::vector<std::string> remove_params;
     bool reset_session = false;
+    // A new endpoint for the connection, set only by FB2 mode (Firebolt-Update-Endpoint).
+    std::string new_endpoint;
 
     bool isSuccess() const { return curl_code == CURLE_OK && http_code >= 200 && http_code < 300; }
 };
@@ -108,6 +110,9 @@ private:
     std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
     curl_slist * buildAuthHeader() const;
     void applyTlsOptions() const;
+    // Sends the request already configured on handle and reads the response.
+    // In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
+    void sendWithAuthRetry(HttpResponse & resp, const char * content_type);
     void parseResponseHeaders(HttpResponse & resp) const;
 
     static size_t writeBodyCallback(char * ptr, size_t size, size_t nmemb, void * userdata);

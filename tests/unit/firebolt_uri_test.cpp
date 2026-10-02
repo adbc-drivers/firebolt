@@ -218,3 +218,42 @@ TEST(FireboltUriTest, UnknownQueryParameterRejected)
     EXPECT_EQ(p.code, ADBC_STATUS_NOT_FOUND);
     EXPECT_NE(p.message.find("engine"), std::string::npos) << p.message;
 }
+
+// ============================================================
+// parseUrl: libcurl's reading of a plain URL
+// ============================================================
+
+using firebolt::adbc::parseUrl;
+
+TEST(ParseUrlTest, SchemeHostAndDefaultPort)
+{
+    auto u = parseUrl("HTTPS://Api.Example.COM/web?x=1");
+    ASSERT_TRUE(u.has_value());
+    EXPECT_EQ(u->scheme, "https");
+    EXPECT_EQ(u->host, "api.example.com");
+    EXPECT_EQ(u->port, "443");
+    EXPECT_FALSE(u->has_userinfo);
+}
+
+TEST(ParseUrlTest, ExplicitPortAndQueryOnlyPath)
+{
+    auto u = parseUrl("http://engine.localhost:4000?engine=e");
+    ASSERT_TRUE(u.has_value());
+    EXPECT_EQ(u->scheme, "http");
+    EXPECT_EQ(u->host, "engine.localhost");
+    EXPECT_EQ(u->port, "4000");
+}
+
+TEST(ParseUrlTest, UserinfoIsReported)
+{
+    auto u = parseUrl("https://user:pw@evil.example.com/x");
+    ASSERT_TRUE(u.has_value());
+    EXPECT_TRUE(u->has_userinfo);
+    EXPECT_EQ(u->host, "evil.example.com");
+}
+
+TEST(ParseUrlTest, NotAnAbsoluteUrl)
+{
+    for (const char * url : {"", "api.example.com", "host?engine=x", "https://", "https://exa mple.com/"})
+        EXPECT_FALSE(parseUrl(url).has_value()) << url;
+}

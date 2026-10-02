@@ -30,6 +30,8 @@ option(FIREBOLT_ADBC_BUILD_TESTS "Build unit tests" OFF)
 option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into adbc_driver_firebolt" ON)
 option(FIREBOLT_ADBC_STRIP_DEP_DEBUG "Strip debug info from dependency artifacts" ON)
 option(WITH_SSL "Build curl with SSL support via BoringSSL (what ships)" ON)
+# FB2 SaaS (Legacy) mode: src/fb2/, always built.
+set(_fb2_sources src/fb2/Fb2LegacyMode.cpp)
 
 # All non-system dependencies must live under adbc/submodule.
 set(ADBC_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodule" CACHE PATH
@@ -301,6 +303,7 @@ add_library(adbc_driver_firebolt SHARED
     src/DescribeParameters.cpp
     src/TlsConfig.cpp
     src/FireboltUri.cpp
+    ${_fb2_sources}
 )
 
 set_target_properties(adbc_driver_firebolt PROPERTIES
@@ -386,12 +389,14 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         require_static_target(gtest_main)
     endif ()
 
+    set(_fb2_tests tests/unit/fb2_legacy_test.cpp)
     add_executable(adbc_driver_tests
         tests/unit/adbc_driver_test.cpp
         tests/unit/session_state_test.cpp
         tests/unit/tls_config_test.cpp
         tests/unit/firebolt_uri_test.cpp
         src/FireboltUri.cpp
+        ${_fb2_tests}
         src/ArrowIpcStream.cpp
         src/IngestSqlBuilder.cpp
         src/HttpHeaderParse.cpp

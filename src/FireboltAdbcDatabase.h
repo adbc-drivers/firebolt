@@ -16,10 +16,16 @@
 
 #include "adbc.h"
 
+#include <memory>
 #include <string>
 
 namespace firebolt::adbc
 {
+
+namespace fb2
+{
+    class Fb2LegacyMode;
+}
 
 struct FireboltDatabase
 {
@@ -30,6 +36,10 @@ struct FireboltDatabase
     std::string ssl_certificate_path; // "firebolt.ssl_certificate_path" — CA bundle override
     std::string ca_bundle_path; // resolved at DatabaseInit for https://; see TlsConfig.h
     bool initialized = false;
+
+    // FB2 SaaS (Legacy) mode hook: created by the first FB2 option, null on the Core
+    // path.  When set, DatabaseInit resolves `url` instead of reading it from "uri".
+    std::shared_ptr<fb2::Fb2LegacyMode> fb2;
 
     // First rejected option, held until DatabaseInit reports it.  See the note in
     // DatabaseSetOption for why a bad option is not refused on the spot.
