@@ -56,10 +56,20 @@ if (WITH_SSL)
     require_dir("${_boringssl_src}" "BoringSSL source submodule")
 endif ()
 
+# Binary size.  Every function and data object gets its own section, here and in
+# every dependency added below, so the link can drop what nothing reaches
+# (--gc-sections on firebolt_adbc).  The version script exports two symbols, so
+# most of BoringSSL, curl and libstdc++ is unreachable.  No effect on speed.
+add_compile_options(-ffunction-sections -fdata-sections)
+
 if (WITH_SSL)
     # Build BoringSSL from source with regular CMake dependency graph wiring.
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Disable BoringSSL shared library build" FORCE)
     set(BUILD_TESTING OFF CACHE BOOL "Disable BoringSSL tests" FORCE)
+    # Drops large precomputed tables (P-256 multiples, among others): about 0.27 MB
+    # smaller, at the cost of slower public-key operations, i.e. a slightly slower
+    # TLS handshake once per connection.  Bulk encryption keeps its AES-NI assembly.
+    set(OPENSSL_SMALL ON CACHE BOOL "Smaller BoringSSL: fewer precomputed tables" FORCE)
     add_subdirectory("${_boringssl_src}" "${_boringssl_build}")
     if (NOT TARGET ssl OR NOT TARGET crypto)
         message(FATAL_ERROR "firebolt_adbc: BoringSSL ssl/crypto static targets were not generated")
@@ -177,6 +187,14 @@ set(CURL_ZLIB OFF CACHE BOOL "Disable zlib support in curl" FORCE)
 set(CURL_BROTLI OFF CACHE BOOL "Disable brotli support in curl" FORCE)
 set(CURL_ZSTD OFF CACHE BOOL "Disable zstd support in curl" FORCE)
 set(CURL_DROP_UNUSED ON CACHE BOOL "Drop unused curl code and data" FORCE)
+# Features the driver never uses.  It sets the Authorization header itself, so
+# none of curl's HTTP auth schemes is needed; ingest uses the MIME API, which
+# stays, not the deprecated curl_formadd API.
+foreach (_curl_unused
+         HTTP_AUTH NTLM KERBEROS_AUTH NEGOTIATE_AUTH DIGEST_AUTH BASIC_AUTH BEARER_AUTH AWS
+         HSTS ALTSVC NETRC FORM_API GETOPTIONS)
+    set(CURL_DISABLE_${_curl_unused} ON CACHE BOOL "Not used by firebolt_adbc" FORCE)
+endforeach ()
 
 # curl's FindCares.cmake consumes these hints when ENABLE_ARES=ON.
 # c-ares generates ares_build.h into its binary dir, while ares.h lives in source include.
@@ -308,7 +326,19 @@ if (UNIX AND NOT APPLE)
     target_link_options(firebolt_adbc PRIVATE
         -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/firebolt_adbc.version
         -Wl,--as-needed
+        -Wl,--gc-sections
     )
+
+    # lld, when the compiler can use it, also folds identical functions.  Asked of
+    # the compiler rather than set through CMAKE_LINKER, which the compiler driver
+    # ignores when it links.
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "-fuse-ld=lld" FIREBOLT_ADBC_HAVE_LLD)
+    if (FIREBOLT_ADBC_HAVE_LLD)
+        target_link_options(firebolt_adbc PRIVATE -fuse-ld=lld -Wl,--icf=all)
+    else ()
+        message(STATUS "firebolt_adbc: lld not available; linking without identical code folding")
+    endif ()
 
     # Print dynamic dependencies after build:
     add_custom_command(TARGET firebolt_adbc POST_BUILD

@@ -14,6 +14,12 @@ All notable changes to this project are documented here. The format follows
   `adbc.firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
   with a message naming every path tried.
 
+### Changed
+
+- **Smaller binary.** Unused code in the statically linked dependencies is now dropped
+  at link time, and unused curl features are compiled out, so the TLS build is 3.45 MB on
+  x86_64 instead of the 5.47 MB it would otherwise be (0.1.1 without TLS: 2.52 MB).
+
 ## [0.1.1] - 2026-08-11
 
 ### Added

@@ -36,7 +36,6 @@ docker run --rm \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
       -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
-      -DCMAKE_LINKER=/usr/bin/ld.lld-18 \
       -DWITH_SSL=ON \
       -DFIREBOLT_ADBC_BUILD_TESTS=ON \
       -G Ninja -S . -B build

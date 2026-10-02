@@ -247,6 +247,18 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 - **No exception may cross the C ABI** — the caller is a C driver manager with no handler,
   so anything that escapes aborts the host process. Every entry point that can throw
   wraps its body; `std::stol` and friends need explicit guards.
+- **Binary size: dead code goes, speed stays** — TLS more than doubled the `.so` (2.5 →
+  5.5 MB). The build now compiles everything, dependencies included, with
+  `-ffunction-sections -fdata-sections` and links with `--gc-sections`; with only two
+  exported symbols most of BoringSSL, curl and libstdc++ is unreachable (−1.65 MB). lld
+  (`-fuse-ld=lld`, detected with `check_linker_flag`; `CMAKE_LINKER` is ignored by the
+  compiler driver, so it was never in effect) adds `--icf=all`. curl drops features the
+  driver never calls (`CURL_DISABLE_HTTP_AUTH` and the other auth schemes, HSTS, alt-svc,
+  netrc, the deprecated form API — not MIME, which ingest uses), and BoringSSL builds with
+  `OPENSSL_SMALL`, whose only cost is a slightly slower TLS handshake. Result: 3.45 MB.
+  Deliberately **not** done: `-Os`, which would save another 0.5 MB by slowing the Arrow
+  and JSON hot paths, and stripping the symbol table, which would cost readable crash
+  stacks.
 - **The CA bundle is chosen at run time, never compiled in** — curl's configure step
   records the build machine's bundle path, which names the Ubuntu builder image's layout
   and is wrong on RHEL, Amazon Linux or SUSE. The build sets `CURL_CA_BUNDLE`/`CURL_CA_PATH`
