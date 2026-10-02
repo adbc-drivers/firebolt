@@ -107,10 +107,31 @@ TEST(FireboltUriTest, NestedPathRejected)
     EXPECT_NE(p.message.find("db/extra"), std::string::npos) << p.message;
 }
 
-TEST(FireboltUriTest, MalformedPercentEscapeRejected)
+TEST(FireboltUriTest, MalformedPercentEscapeKeptLiterally)
 {
-    EXPECT_EQ(parse("firebolt://localhost/db%zz").code, ADBC_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(parse("firebolt://localhost/db%2").code, ADBC_STATUS_INVALID_ARGUMENT);
+    // As in libcurl and browsers, a '%' that does not start a valid escape is
+    // kept as it is rather than refused.
+    auto p = parse("firebolt://localhost/db%zz");
+    ASSERT_EQ(p.code, ADBC_STATUS_OK) << p.message;
+    EXPECT_EQ(p.uri.database, "db%zz");
+    p = parse("firebolt://localhost/db%2");
+    ASSERT_EQ(p.code, ADBC_STATUS_OK) << p.message;
+    EXPECT_EQ(p.uri.database, "db%2");
+}
+
+TEST(FireboltUriTest, InvalidPortRejected)
+{
+    for (const char * uri : {"firebolt://localhost:abc/db", "firebolt://localhost:99999/db"})
+    {
+        auto p = parse(uri);
+        EXPECT_EQ(p.code, ADBC_STATUS_INVALID_ARGUMENT) << uri;
+        EXPECT_NE(p.message.find("ort"), std::string::npos) << uri << ": " << p.message;
+    }
+}
+
+TEST(FireboltUriTest, MalformedUriRejected)
+{
+    EXPECT_EQ(parse("firebolt://loc alhost/db").code, ADBC_STATUS_INVALID_ARGUMENT);
 }
 
 TEST(FireboltUriTest, UnknownSslModeRejected)

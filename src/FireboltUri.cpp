@@ -14,7 +14,12 @@
 
 #include "FireboltUri.h"
 
+#include <curl/curl.h>
+
 #include <cstring>
+#include <memory>
+#include <new>
+#include <string>
 #include <utility>
 #include <strings.h>
 
@@ -26,37 +31,35 @@ namespace
 
     constexpr const char * kScheme = "firebolt://";
 
-    int hexValue(char c)
+    struct CurlUrlCleanup
     {
-        if (c >= '0' && c <= '9')
-            return c - '0';
-        if (c >= 'a' && c <= 'f')
-            return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F')
-            return c - 'A' + 10;
-        return -1;
+        void operator()(CURLU * url) const { curl_url_cleanup(url); }
+    };
+
+    struct CurlFree
+    {
+        void operator()(char * text) const { curl_free(text); }
+    };
+
+    using CurlString = std::unique_ptr<char, CurlFree>;
+
+    // One component of a parsed URL, still percent-encoded; empty when absent.
+    std::string urlPart(CURLU * url, CURLUPart part)
+    {
+        char * value = nullptr;
+        if (curl_url_get(url, part, &value, 0) != CURLUE_OK)
+            return {};
+        return CurlString(value).get();
     }
 
-    bool percentDecode(const std::string & in, std::string & out)
+    // A '%' that does not start a valid escape is kept as it is.
+    std::string percentDecode(const std::string & text)
     {
-        out.clear();
-        for (size_t i = 0; i < in.size(); ++i)
-        {
-            if (in[i] != '%')
-            {
-                out += in[i];
-                continue;
-            }
-            if (i + 2 >= in.size())
-                return false;
-            const int hi = hexValue(in[i + 1]);
-            const int lo = hexValue(in[i + 2]);
-            if (hi < 0 || lo < 0)
-                return false;
-            out += static_cast<char>(hi * 16 + lo);
-            i += 2;
-        }
-        return true;
+        int length = 0;
+        CurlString decoded(curl_easy_unescape(nullptr, text.c_str(), static_cast<int>(text.size()), &length));
+        if (!decoded)
+            throw std::bad_alloc();
+        return std::string(decoded.get(), static_cast<size_t>(length));
     }
 
 } // namespace
@@ -82,41 +85,39 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
         return ADBC_STATUS_NOT_IMPLEMENTED;
     }
 
-    const std::string rest = uri.substr(std::strlen(kScheme));
-    const size_t authority_end = rest.find_first_of("/?");
-    const std::string authority = rest.substr(0, authority_end);
-    std::string path;
-    std::string query;
-    if (authority_end != std::string::npos)
-    {
-        const std::string tail = rest.substr(authority_end);
-        const size_t q = tail.find('?');
-        path = tail.substr(0, q);
-        if (q != std::string::npos)
-            query = tail.substr(q + 1);
-    }
-
-    if (authority.empty())
+    // libcurl reads firebolt:///db as host "db", which is the shape of the
+    // older account-based DSN; here an empty authority means no host.
+    const size_t authority_start = std::strlen(kScheme);
+    if (uri.size() == authority_start || uri[authority_start] == '/' || uri[authority_start] == '?')
     {
         message = "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]";
         return ADBC_STATUS_INVALID_ARGUMENT;
     }
 
+    const std::unique_ptr<CURLU, CurlUrlCleanup> url(curl_url());
+    if (!url)
+        throw std::bad_alloc();
+    const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
+    if (rc != CURLUE_OK)
+    {
+        message = std::string("Database 'uri' is not a valid firebolt:// URI (") + curl_url_strerror(rc) + "); got '" + uri + "'";
+        return ADBC_STATUS_INVALID_ARGUMENT;
+    }
+    const std::string port = urlPart(url.get(), CURLUPART_PORT);
+    const std::string authority = urlPart(url.get(), CURLUPART_HOST) + (port.empty() ? "" : ":" + port);
+
     // The path names the database: one segment, possibly empty.  Slashes are
     // checked before decoding, so %2F can still put one in a database name.
+    const std::string path = urlPart(url.get(), CURLUPART_PATH);
     const std::string segment = path.empty() ? path : path.substr(1);
     if (segment.find('/') != std::string::npos)
     {
         message = "Database 'uri' path must be a single database name; got '" + segment + "'";
         return ADBC_STATUS_INVALID_ARGUMENT;
     }
-    std::string database;
-    if (!percentDecode(segment, database))
-    {
-        message = "Database 'uri' has a malformed percent-escape in the database name '" + segment + "'";
-        return ADBC_STATUS_INVALID_ARGUMENT;
-    }
+    std::string database = percentDecode(segment);
 
+    const std::string query = urlPart(url.get(), CURLUPART_QUERY);
     std::string ssl_mode = "verify-full";
     size_t pos = 0;
     while (pos < query.size())
@@ -129,13 +130,8 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
         if (pair.empty())
             continue;
         const size_t eq = pair.find('=');
-        std::string key;
-        std::string value;
-        if (!percentDecode(pair.substr(0, eq), key) || !percentDecode(eq == std::string::npos ? "" : pair.substr(eq + 1), value))
-        {
-            message = "Database 'uri' has a malformed percent-escape in query parameter '" + pair + "'";
-            return ADBC_STATUS_INVALID_ARGUMENT;
-        }
+        const std::string key = percentDecode(pair.substr(0, eq));
+        const std::string value = eq == std::string::npos ? "" : percentDecode(pair.substr(eq + 1));
         if (key != "ssl_mode")
         {
             message = "Unknown query parameter '" + key + "' in database 'uri'; the supported one is ssl_mode";

@@ -357,7 +357,16 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     {
         FireboltUri parsed;
         std::string message;
-        const AdbcStatusCode rc = parseFireboltUri(fdb->url, parsed, message);
+        AdbcStatusCode rc = ADBC_STATUS_OK;
+        try
+        {
+            rc = parseFireboltUri(fdb->url, parsed, message);
+        }
+        catch (const std::exception & ex)
+        {
+            // Only allocation fails here, but nothing may unwind into the driver manager.
+            return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+        }
         if (rc != ADBC_STATUS_OK)
             return SetError(error, rc, message);
         fdb->url = std::move(parsed.endpoint);
