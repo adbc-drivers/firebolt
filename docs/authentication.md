@@ -23,6 +23,9 @@ obtain a token itself. The gaps are listed at the bottom.
 
 ## What works today
 
+(For engines in a Firebolt 2.0 SaaS account, which use service accounts and a
+different flow, see [fb2-saas.md](fb2-saas.md) — FB2 only.)
+
 ### Authentication disabled
 
 The common local and CI setup. Supply no token and the driver sends no
