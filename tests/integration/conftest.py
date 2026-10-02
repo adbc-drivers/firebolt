@@ -94,11 +94,13 @@ def server_url(started_engine):
 
 
 def _fb2_execute(sql: str) -> None:
-    with dbapi.connect(
-        driver=ADBC_DRIVER_PATH, db_kwargs=fb2_db_kwargs(), autocommit=True
-    ) as c:
-        with c.cursor() as cur:
-            cur.execute(sql)
+    with (
+        dbapi.connect(
+            driver=ADBC_DRIVER_PATH, db_kwargs=fb2_db_kwargs(), autocommit=True
+        ) as c,
+        c.cursor() as cur,
+    ):
+        cur.execute(sql)
 
 
 @pytest.fixture(scope="session")
@@ -130,7 +132,9 @@ def engine_db_kwargs(request):
 def conn(engine_db_kwargs):
     """A fresh AdbcConnection for each test."""
     with (
-        adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, **engine_db_kwargs) as db,
+        adbc_driver_manager.AdbcDatabase(
+            driver=ADBC_DRIVER_PATH, **engine_db_kwargs
+        ) as db,
         adbc_driver_manager.AdbcConnection(db) as connection,
     ):
         yield connection

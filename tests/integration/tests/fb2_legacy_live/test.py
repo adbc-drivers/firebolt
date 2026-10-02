@@ -48,12 +48,14 @@ def _db_kwargs(**overrides):
 @pytest.fixture
 def cursor(fb2_database):
     """A cursor in the session's own database (fb2_database, see conftest.py)."""
-    with adbc_driver_manager.dbapi.connect(
-        driver=ADBC_DRIVER_PATH,
-        db_kwargs=_db_kwargs(**{"firebolt.database": fb2_database}),
-    ) as conn:
-        with conn.cursor() as cur:
-            yield cur
+    with (
+        adbc_driver_manager.dbapi.connect(
+            driver=ADBC_DRIVER_PATH,
+            db_kwargs=_db_kwargs(**{"firebolt.database": fb2_database}),
+        ) as conn,
+        conn.cursor() as cur,
+    ):
+        yield cur
 
 
 def test_query_runs_on_the_configured_engine(cursor, fb2_database):
