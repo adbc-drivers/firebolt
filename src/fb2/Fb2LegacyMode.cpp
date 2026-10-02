@@ -114,12 +114,12 @@ struct Fb2LegacyMode::Impl
             if (const std::string * url = findOption(key); url && !isHttpUrl(*url))
                 return invalidOption(std::string(key) + " must be an http:// or https:// URL with a host; got '" + *url + "'");
         if (const std::string * cache = findOption("firebolt.cache_connection"); cache && *cache != "true" && *cache != "false")
-            return invalidOption("firebolt.cache_connection must be exactly \"true\" or \"false\"; got '" + *cache + "'");
+            return invalidOption(R"(firebolt.cache_connection must be exactly "true" or "false"; got ')" + *cache + "'");
         return {};
     }
 };
 
-Fb2LegacyMode::Fb2LegacyMode() : impl_(std::make_unique<Impl>())
+Fb2LegacyMode::Fb2LegacyMode() : impl(std::make_unique<Impl>())
 {
 }
 
@@ -127,36 +127,38 @@ Fb2LegacyMode::~Fb2LegacyMode() = default;
 
 Status Fb2LegacyMode::setOption(const std::string & key, const std::string & value)
 {
-    std::lock_guard lock(impl_->mutex);
-    impl_->option_values[key] = value;
+    std::lock_guard lock(impl->mutex);
+    impl->option_values[key] = value;
     return {};
 }
 
 bool Fb2LegacyMode::requested() const
 {
-    std::lock_guard lock(impl_->mutex);
-    return !impl_->option_values.empty();
+    std::lock_guard lock(impl->mutex);
+    return !impl->option_values.empty();
 }
 
 Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & /*endpoint*/)
 {
-    std::lock_guard lock(impl_->mutex);
-    if (Status status = impl_->validateOptions(inputs); !status.ok())
+    std::lock_guard lock(impl->mutex);
+    if (Status status = impl->validateOptions(inputs); !status.ok())
         return status;
     return {ADBC_STATUS_NOT_IMPLEMENTED, "FB2 SaaS mode: connecting is not implemented yet"};
 }
 
 std::string Fb2LegacyMode::bearerToken()
 {
-    std::lock_guard lock(impl_->mutex);
-    return impl_->bearer_token;
+    std::lock_guard lock(impl->mutex);
+    return impl->bearer_token;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static): uses the mode's state once tokens exist (next PR)
 bool Fb2LegacyMode::reauthenticate()
 {
     return false;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static): uses the mode's state once engines are resolved
 ResponseEffect Fb2LegacyMode::onResponse(CURL * /*handle*/, long /*http_code*/, bool /*success*/, std::string & /*error_message*/)
 {
     return {};
