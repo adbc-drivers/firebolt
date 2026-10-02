@@ -27,7 +27,7 @@ pip install pandas polars     # optional, for query_to_pandas.py
 ```
 
 You also need the driver and an engine to talk to. Either download a
-[release](https://github.com/firebolt-db/firebolt-adbc/releases/latest) or build
+[release](https://github.com/adbc-drivers/firebolt/releases/latest) or build
 locally with `./scripts/build.sh`, then start an engine:
 
 ```bash

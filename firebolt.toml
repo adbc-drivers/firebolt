@@ -40,7 +40,7 @@
 name = "Firebolt"
 manifest_version = 1
 version = "0.1.1"
-source = "https://github.com/firebolt-db/firebolt-adbc"
+source = "https://github.com/adbc-drivers/firebolt"
 
 [Driver]
 # The driver exports the standard `AdbcDriverInit` symbol, which is what the

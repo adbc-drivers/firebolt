@@ -166,8 +166,8 @@ jobs:
 
           Each archive holds \`libadbc_driver_firebolt.so\`, \`LICENSE.txt\` and
           \`NOTICE.txt\`. Verify a download with the matching \`.sha256\` file, then see the
-          [quickstart](https://github.com/firebolt-db/firebolt-adbc#quickstart).
+          [quickstart](https://github.com/adbc-drivers/firebolt#quickstart).
 
           This build reaches plaintext \`http://\` endpoints only — see
-          [docs/authentication.md](https://github.com/firebolt-db/firebolt-adbc/blob/main/docs/authentication.md)." \
+          [docs/authentication.md](https://github.com/adbc-drivers/firebolt/blob/main/docs/authentication.md)." \
             dist/*

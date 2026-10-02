@@ -446,7 +446,7 @@ today's names to the canonical ones is in
 ## Build from source
 
 Only needed to develop the driver — consumers should use a
-[release](https://github.com/firebolt-db/firebolt-adbc/releases). Requires Docker
+[release](https://github.com/adbc-drivers/firebolt/releases). Requires Docker
 and git.
 
 ```bash
