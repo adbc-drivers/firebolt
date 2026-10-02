@@ -434,30 +434,29 @@ def test_a_pre_acquired_token_is_not_retried(mock_server):
 def test_use_engine_mid_session_moves_only_that_connection(mock_server, client_id):
     _queue_bootstrap(mock_server)
     options = _named_options(mock_server, client_id)
-    with _Connected(options) as conn:
-        with _Connected(options) as other:
-            mock_server.reset()
-            mock_server.queue(
-                status=200,
-                body=_arrow_body(),
-                headers=[
-                    ("Firebolt-Reset-Session", ""),
-                    (
-                        "Firebolt-Update-Endpoint",
-                        f"{_host(mock_server, 'other')}?engine=e2",
-                    ),
-                ],
-            )
-            _query(conn, "USE ENGINE e2")
-            mock_server.queue(body=_arrow_body())
-            _query(conn)
-            mock_server.queue(body=_arrow_body())
-            _query(other)
-            _, moved, untouched = mock_server.captured
-            assert _parsed(moved)[2] == _host(mock_server, "other") and _parsed(moved)[
-                1
-            ]["engine"] == ["e2"]
-            assert _parsed(untouched)[2] == _host(mock_server, "engine")
+    with _Connected(options) as conn, _Connected(options) as other:
+        mock_server.reset()
+        mock_server.queue(
+            status=200,
+            body=_arrow_body(),
+            headers=[
+                ("Firebolt-Reset-Session", ""),
+                (
+                    "Firebolt-Update-Endpoint",
+                    f"{_host(mock_server, 'other')}?engine=e2",
+                ),
+            ],
+        )
+        _query(conn, "USE ENGINE e2")
+        mock_server.queue(body=_arrow_body())
+        _query(conn)
+        mock_server.queue(body=_arrow_body())
+        _query(other)
+        _, moved, untouched = mock_server.captured
+        assert _parsed(moved)[2] == _host(mock_server, "other") and _parsed(moved)[1][
+            "engine"
+        ] == ["e2"]
+        assert _parsed(untouched)[2] == _host(mock_server, "engine")
 
 
 def test_update_endpoint_to_a_foreign_host_is_refused(mock_server, client_id):
