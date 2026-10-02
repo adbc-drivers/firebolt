@@ -69,6 +69,19 @@ bool isFireboltUri(const std::string & uri)
 
 AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std::string & message)
 {
+    // Credentials in the URI are OAuth client_credentials in Firebolt's SDK
+    // spec, which this driver does not implement yet.  The whole URI is
+    // checked, not just the authority: an unencoded '/' or '?' in a password
+    // would otherwise move part of it into the path or the query.  No part of
+    // the URI is echoed back, since it holds a secret.
+    if (uri.find('@') != std::string::npos)
+    {
+        message = "Database 'uri' carries credentials (user:password@), which this driver does not support yet; "
+                  "remove them and pass a bearer token in 'firebolt.token'. A literal '@' (for example in a "
+                  "database name) is written %40";
+        return ADBC_STATUS_NOT_IMPLEMENTED;
+    }
+
     const std::string rest = uri.substr(std::strlen(kScheme));
     const size_t authority_end = rest.find_first_of("/?");
     const std::string authority = rest.substr(0, authority_end);
@@ -83,15 +96,6 @@ AdbcStatusCode parseFireboltUri(const std::string & uri, FireboltUri & out, std:
             query = tail.substr(q + 1);
     }
 
-    // Credentials in the URI are OAuth client_credentials in Firebolt's SDK
-    // spec, which this driver does not implement yet.  The authority is not
-    // echoed back, since it holds a secret.
-    if (authority.find('@') != std::string::npos)
-    {
-        message = "Database 'uri' carries credentials (user:password@), which this driver does not support yet; "
-                  "remove them and pass a bearer token in 'firebolt.token'";
-        return ADBC_STATUS_NOT_IMPLEMENTED;
-    }
     if (authority.empty())
     {
         message = "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]";

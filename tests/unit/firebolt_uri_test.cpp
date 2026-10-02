@@ -136,6 +136,29 @@ TEST(FireboltUriTest, CredentialsNotImplemented)
     EXPECT_EQ(p.message.find("s3cr3t"), std::string::npos) << p.message;
 }
 
+TEST(FireboltUriTest, CredentialsWithUnencodedDelimitersNotEchoed)
+{
+    // An unencoded '/' or '?' in the password ends the authority early, so the
+    // rest of the secret lands in the path or the query.  It must still be
+    // recognised as credentials rather than reported back as a bad path or an
+    // unknown parameter.
+    for (const char * uri : {"firebolt://svc:s3c/r3t@localhost/db", "firebolt://svc:s3c?r3t=x@localhost/db", "firebolt://svc:s3c?r%zz3t@localhost"})
+    {
+        auto p = parse(uri);
+        EXPECT_EQ(p.code, ADBC_STATUS_NOT_IMPLEMENTED) << uri << ": " << p.message;
+        EXPECT_EQ(p.message.find("s3c"), std::string::npos) << uri << ": " << p.message;
+        EXPECT_EQ(p.message.find("r3t"), std::string::npos) << uri << ": " << p.message;
+    }
+}
+
+TEST(FireboltUriTest, PercentEncodedAtSignInDatabaseAccepted)
+{
+    // A literal '@' in a database name is written %40, and is not credentials.
+    auto p = parse("firebolt://localhost/team%40analytics?ssl_mode=disable");
+    ASSERT_EQ(p.code, ADBC_STATUS_OK) << p.message;
+    EXPECT_EQ(p.uri.database, "team@analytics");
+}
+
 TEST(FireboltUriTest, UnknownQueryParameterRejected)
 {
     // A typo here would otherwise be ignored as silently as a misspelled option.

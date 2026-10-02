@@ -74,7 +74,7 @@ Errors:
 | `uri` has no scheme, or a scheme other than firebolt/http/https | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `firebolt://` URI with no host, a nested path, a malformed `%` escape, or an unknown `ssl_mode` | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `firebolt://` URI with `ssl_mode=verify-ca` or `require` (verification cannot be relaxed) | `ADBC_STATUS_NOT_IMPLEMENTED` |
-| `firebolt://` URI with credentials (`user:password@`) | `ADBC_STATUS_NOT_IMPLEMENTED` |
+| `firebolt://` URI with credentials (`user:password@`) — any raw `@` counts; write a literal one as `%40` | `ADBC_STATUS_NOT_IMPLEMENTED` |
 | `firebolt://` URI with a query parameter other than `ssl_mode` | `ADBC_STATUS_NOT_FOUND` |
 | `uri` is `https://` on a build without TLS | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
