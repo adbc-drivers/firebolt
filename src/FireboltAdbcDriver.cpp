@@ -365,24 +365,20 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     }
     if (const auto * uri_error = std::get_if<FireboltUriError>(&parsed))
         return SetError(error, uri_error->code, uri_error->message);
-    const bool from_firebolt_uri = std::holds_alternative<FireboltUri>(parsed);
-    if (auto * uri = std::get_if<FireboltUri>(&parsed))
-    {
-        fdb->url = std::move(uri->endpoint);
-        if (fdb->database.empty())
-            fdb->database = std::move(uri->database);
-    }
+    auto * uri = std::get_if<FireboltUri>(&parsed);
+    const bool from_firebolt_uri = uri != nullptr;
+    const std::string & endpoint = from_firebolt_uri ? uri->endpoint : fdb->url;
 
     // Validate the endpoint here rather than letting libcurl reject it on the
     // first query, where the failure reads as a network error ("Unsupported
     // protocol") with nothing pointing back at the option that caused it.
-    const bool is_http = hasSchemePrefix(fdb->url, "http://");
-    const bool is_https = hasSchemePrefix(fdb->url, "https://");
+    const bool is_http = hasSchemePrefix(endpoint, "http://");
+    const bool is_https = hasSchemePrefix(endpoint, "https://");
     if (!is_http && !is_https)
         return SetError(
             error,
             ADBC_STATUS_INVALID_ARGUMENT,
-            "Database 'uri' must start with firebolt://, http:// or https://; got '" + fdb->url
+            "Database 'uri' must start with firebolt://, http:// or https://; got '" + endpoint
                 + "'. For example firebolt://localhost:3473/my_db?ssl_mode=disable or http://localhost:3473");
     if (is_https && !curlSupportsTls())
         return SetError(
@@ -403,6 +399,14 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
         if (!ca.error.empty())
             return SetError(error, ca.configuration_error ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_INVALID_STATE, ca.error);
         fdb->ca_bundle_path = ca.path;
+    }
+
+    // Written last: a failed Init must leave the options as the caller set them.
+    if (from_firebolt_uri)
+    {
+        fdb->url = std::move(uri->endpoint);
+        if (fdb->database.empty())
+            fdb->database = std::move(uri->database);
     }
 
     initCurl();

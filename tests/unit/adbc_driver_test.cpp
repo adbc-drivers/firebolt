@@ -549,6 +549,33 @@ TEST(DatabaseInitTest, MalformedFireboltUriRejected)
     EXPECT_EQ(d.code, ADBC_STATUS_INVALID_ARGUMENT);
 }
 
+TEST(DatabaseInitTest, FailedInitDoesNotKeepFireboltUriDatabase)
+{
+    // A failed Init leaves the database uninitialised, so the caller may fix
+    // the options and retry.  The first URI's database must not survive into
+    // the retry as if it had been set explicitly.
+    AdbcDriver driver = InitDriver();
+    AdbcDatabase db{};
+    AdbcError error = ADBC_ERROR_INIT;
+    ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "firebolt://localhost:3473/db1", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", "/no/such/ca.pem", &error), ADBC_STATUS_OK);
+    ASSERT_NE(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK);
+    if (error.release)
+        error.release(&error);
+
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "firebolt://localhost:3473/db2?ssl_mode=disable", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", "", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK) << (error.message ? error.message : "");
+
+    const auto & fdb = *static_cast<firebolt::adbc::FireboltDatabase *>(db.private_data);
+    EXPECT_EQ(fdb.url, "http://localhost:3473");
+    EXPECT_EQ(fdb.database, "db2");
+    driver.DatabaseRelease(&db, nullptr);
+    if (error.release)
+        error.release(&error);
+}
+
 TEST(DatabaseInitTest, FireboltUriDefaultsToTls)
 {
     // ssl_mode defaults to verify-full.  On a build without TLS that cannot
