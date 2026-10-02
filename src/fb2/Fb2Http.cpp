@@ -59,6 +59,9 @@ namespace
         struct curl_header * header = nullptr;
         if (curl_easy_header(handle, "Retry-After", 0, CURLH_HEADER, -1, &header) == CURLHE_OK && header && header->value)
             result.retry_after = header->value;
+        header = nullptr;
+        if (curl_easy_header(handle, "Firebolt-Update-Endpoint", 0, CURLH_HEADER, -1, &header) == CURLHE_OK && header && header->value)
+            result.update_endpoint = header->value;
         return result;
     }
 
@@ -93,6 +96,21 @@ Fb2HttpResult getJson(const std::string & url, const std::string & bearer_token,
     if (!bearer_token.empty())
         headers.reset(curl_slist_append(headers.release(), ("Authorization: Bearer " + bearer_token).c_str()));
     curl_easy_setopt(handle.get(), CURLOPT_HTTPGET, 1L);
+    return sendControlPlaneRequest(handle.get(), url, headers.get(), transport);
+}
+
+Fb2HttpResult postSql(const std::string & url, const std::string & sql, const std::string & bearer_token, const Transport & transport)
+{
+    CurlHandle handle(curl_easy_init(), curl_easy_cleanup);
+    if (!handle)
+        return {false, "curl_easy_init failed"};
+    HeaderList headers(curl_slist_append(nullptr, "Content-Type: text/plain; charset=utf-8"), curl_slist_free_all);
+    headers.reset(curl_slist_append(headers.release(), "Firebolt-Protocol-Version: 2.4"));
+    if (!bearer_token.empty())
+        headers.reset(curl_slist_append(headers.release(), ("Authorization: Bearer " + bearer_token).c_str()));
+    curl_easy_setopt(handle.get(), CURLOPT_POST, 1L);
+    curl_easy_setopt(handle.get(), CURLOPT_POSTFIELDS, sql.c_str());
+    curl_easy_setopt(handle.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(sql.size()));
     return sendControlPlaneRequest(handle.get(), url, headers.get(), transport);
 }
 
