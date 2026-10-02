@@ -1,3 +1,19 @@
+<!--
+Copyright (c) 2026 ADBC Drivers Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 # Contributing
 
 ## Prerequisites
@@ -68,6 +84,12 @@ Delete `build/` and re-run.
 ## Conventions
 
 - **Format C++ with the repository's `.clang-format`** before sending a change.
+- **Every new file starts with the Apache 2.0 header** — `Copyright (c) 2026 ADBC
+  Drivers Contributors` and the standard notice, in the file's comment syntax
+  (copy it from a neighbour). Vendored files such as `adbc.h` keep their own
+  header; a file migrated from another Apache-licensed project adds "This file
+  has been modified from its original version, which is under the Apache
+  License" below it.
 - **No dependency discovery in CMake.** No `find_package`, `find_library`,
   `find_path`, `find_program`, or `FetchContent` for required dependencies —
   everything must exist under `submodule/`. See [CLAUDE.md](CLAUDE.md) for why.
