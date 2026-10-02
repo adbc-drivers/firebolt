@@ -35,12 +35,12 @@ SECRET = "fbsec_DO_NOT_LEAK"
 
 
 def _token_response(token="eyJ.mock.token", expires_in=7200):
-    return dict(
-        status=200,
-        body=json.dumps(
+    return {
+        "status": 200,
+        "body": json.dumps(
             {"access_token": token, "expires_in": expires_in, "token_type": "bearer"}
         ).encode(),
-    )
+    }
 
 
 def _options(mock, client_id, **overrides):

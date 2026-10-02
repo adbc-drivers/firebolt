@@ -32,8 +32,8 @@ namespace
     // A server error body, trimmed to something that fits in a message.
     std::string excerpt(const std::string & body)
     {
-        constexpr size_t kMax = 300;
-        return body.size() <= kMax ? body : body.substr(0, kMax) + "…";
+        constexpr size_t max_length = 300;
+        return body.size() <= max_length ? body : body.substr(0, max_length) + "…";
     }
 
     struct CacheEntry
