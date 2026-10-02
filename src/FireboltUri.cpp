@@ -31,18 +31,6 @@ namespace
 
     constexpr const char * kScheme = "firebolt://";
 
-    struct CurlUrlCleanup
-    {
-        void operator()(CURLU * url) const { curl_url_cleanup(url); }
-    };
-
-    struct CurlFree
-    {
-        void operator()(char * text) const { curl_free(text); }
-    };
-
-    using CurlString = std::unique_ptr<char, CurlFree>;
-
     // One component of a parsed URL, or nullopt when it is absent or, with
     // CURLU_URLDECODE, does not decode.
     std::optional<std::string> urlPart(CURLU * url, CURLUPart part, unsigned int flags = 0)
@@ -50,7 +38,8 @@ namespace
         char * value = nullptr;
         if (curl_url_get(url, part, &value, flags) != CURLUE_OK)
             return std::nullopt;
-        return std::string(CurlString(value).get());
+        const std::unique_ptr<char, decltype(&curl_free)> owned(value, &curl_free);
+        return std::string(owned.get());
     }
 
 } // namespace
@@ -84,7 +73,7 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
             "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]"};
     }
 
-    const std::unique_ptr<CURLU, CurlUrlCleanup> url(curl_url());
+    const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), &curl_url_cleanup);
     if (!url)
         return FireboltUriError{ADBC_STATUS_INTERNAL, "Out of memory parsing database 'uri'"};
     const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
