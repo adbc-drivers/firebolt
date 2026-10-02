@@ -44,7 +44,8 @@ namespace
 
 } // namespace
 
-std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri)
+std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept
+try
 {
     const size_t authority_start = std::strlen(kScheme);
     if (uri.size() < authority_start || strncasecmp(uri.c_str(), kScheme, authority_start) != 0)
@@ -75,7 +76,7 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
 
     const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), &curl_url_cleanup);
     if (!url)
-        return FireboltUriError{ADBC_STATUS_INTERNAL, "Out of memory parsing database 'uri'"};
+        return FireboltUriError{ADBC_STATUS_INTERNAL, "out of memory"};
     const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
     if (rc != CURLUE_OK)
     {
@@ -145,6 +146,12 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
     }
 
     return FireboltUri{transport + authority, std::move(database)};
+}
+catch (...)
+{
+    // Only allocation can fail.  The message fits in std::string's inline
+    // buffer, so building this error does not allocate and cannot throw again.
+    return FireboltUriError{ADBC_STATUS_INTERNAL, "out of memory"};
 }
 
 } // namespace firebolt::adbc

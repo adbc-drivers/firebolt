@@ -60,6 +60,9 @@ bool isFireboltUri(const std::string & uri)
 
 } // namespace
 
+// DatabaseInit calls it straight from the C ABI, where nothing may unwind.
+static_assert(noexcept(parseFireboltUri(std::string())), "parseFireboltUri must not throw");
+
 TEST(FireboltUriTest, RecognisesSchemeCaseInsensitively)
 {
     EXPECT_TRUE(isFireboltUri("firebolt://localhost"));

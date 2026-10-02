@@ -353,16 +353,7 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     // firebolt:// is the driver's own scheme (the one a driver manager maps to
     // this driver); it resolves to the HTTP endpoint every request goes to.  The
     // path names the database, and an explicit firebolt.database option wins.
-    std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parsed;
-    try
-    {
-        parsed = parseFireboltUri(fdb->url);
-    }
-    catch (const std::exception & ex)
-    {
-        // Only allocation fails here, but nothing may unwind into the driver manager.
-        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
-    }
+    auto parsed = parseFireboltUri(fdb->url);
     if (const auto * uri_error = std::get_if<FireboltUriError>(&parsed))
         return SetError(error, uri_error->code, uri_error->message);
     auto * uri = std::get_if<FireboltUri>(&parsed);

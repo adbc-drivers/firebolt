@@ -47,6 +47,7 @@ struct FireboltUriError
     std::string message;
 };
 
-std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri);
+// Never throws: running out of memory comes back as a FireboltUriError.
+std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept;
 
 } // namespace firebolt::adbc
