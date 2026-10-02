@@ -61,13 +61,15 @@ def main() -> None:
 
     # Opening the connection exchanges the service account for a token and looks
     # up the engine's URL; both are cached for the rest of the process.
-    with dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT current_engine() AS engine, current_database() AS db")
-            print(cur.fetch_arrow_table())
+    with (
+        dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn,
+        conn.cursor() as cur,
+    ):
+        cur.execute("SELECT current_engine() AS engine, current_database() AS db")
+        print(cur.fetch_arrow_table())
 
-            cur.execute("SELECT $1 + 1 AS answer", (41,))
-            print(cur.fetchall())
+        cur.execute("SELECT $1 + 1 AS answer", (41,))
+        print(cur.fetchall())
 
 
 if __name__ == "__main__":
