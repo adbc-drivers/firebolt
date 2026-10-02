@@ -279,20 +279,20 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
     // DatabaseInit validates the endpoint and picks the CA bundle from these two.
     // A change after it would bypass both — an http:// database switched to
     // https:// would have no CA bundle at all — so refuse rather than half-apply.
-    if (fdb->initialized && (k == "uri" || k == "adbc.firebolt.ssl_certificate_path"))
+    if (fdb->initialized && (k == "uri" || k == "firebolt.ssl_certificate_path"))
         return SetError(
             error,
             ADBC_STATUS_INVALID_STATE,
             "Option '" + k + "' must be set before AdbcDatabaseInit; open a new database to use another value");
     if (k == "uri")
         fdb->url = v;
-    else if (k == "adbc.firebolt.token")
+    else if (k == "firebolt.token")
         fdb->token = v;
-    else if (k == "adbc.firebolt.database")
+    else if (k == "firebolt.database")
         fdb->database = v;
-    else if (k == "adbc.firebolt.ssl_certificate_path")
+    else if (k == "firebolt.ssl_certificate_path")
         fdb->ssl_certificate_path = v;
-    else if (k == "adbc.firebolt.timeout_sec")
+    else if (k == "firebolt.timeout_sec")
     {
         // std::stol throws on non-numeric and out-of-range input.  Letting that
         // propagate would unwind through the C ABI into a driver manager with no
@@ -312,24 +312,24 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
                 fdb,
                 error,
                 ADBC_STATUS_INVALID_ARGUMENT,
-                "Option 'adbc.firebolt.timeout_sec' must be a whole number of seconds (0 disables the timeout); got '" + v + "'");
+                "Option 'firebolt.timeout_sec' must be a whole number of seconds (0 disables the timeout); got '" + v + "'");
         }
         if (parsed < 0)
             return RejectOption(
                 fdb,
                 error,
                 ADBC_STATUS_INVALID_ARGUMENT,
-                "Option 'adbc.firebolt.timeout_sec' must not be negative (0 disables the timeout); got '" + v + "'");
+                "Option 'firebolt.timeout_sec' must not be negative (0 disables the timeout); got '" + v + "'");
         fdb->timeout_sec = parsed;
     }
-    else if (k.rfind("adbc.firebolt.", 0) == 0)
+    else if (k.rfind("firebolt.", 0) == 0)
     {
         // A misspelled driver option is a configuration bug.  Accepting it
         // silently produced connections that used the server's defaults with no
         // diagnostic anywhere.
         return RejectOption(fdb, error, ADBC_STATUS_NOT_FOUND, "Unknown Firebolt database option '" + k + "'");
     }
-    // Keys outside the adbc.firebolt.* namespace are accepted and ignored: the
+    // Keys outside the firebolt.* namespace are accepted and ignored: the
     // driver manager sets some of them itself, and callers pass connection
     // parameters this driver does not consume yet.
     return ADBC_STATUS_OK;
@@ -447,7 +447,7 @@ static AdbcStatusCode ConnectionSetOption(AdbcConnection * conn, const char * ke
         fc->autocommit = want_autocommit;
         return ADBC_STATUS_OK;
     }
-    if (k == "adbc.firebolt.token")
+    if (k == "firebolt.token")
     {
         // Update the bearer token used in the Authorization header.  Stored
         // per-connection (NOT on the shared FireboltDatabase) so two
@@ -481,10 +481,10 @@ static AdbcStatusCode ConnectionInit(AdbcConnection * conn, AdbcDatabase * db, A
         fc->db = fdb;
         // Initialise the per-connection token from the database default,
         // unless the caller already set a per-connection token via
-        // ConnectionSetOption("adbc.firebolt.token") between New and Init —
+        // ConnectionSetOption("firebolt.token") between New and Init —
         // ADBC permits options to be applied before Init, and silently
         // dropping that token would fall back to the database identity.
-        // Subsequent ConnectionSetOption("adbc.firebolt.token") on this
+        // Subsequent ConnectionSetOption("firebolt.token") on this
         // connection only mutates fc->token, never fdb->token.
         if (fc->token.empty())
             fc->token = fdb->token;

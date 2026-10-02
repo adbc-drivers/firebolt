@@ -120,6 +120,7 @@ private keys, including test material: generate test certificates at run time.
             ├── driver_loading/test.py     # entry-point names a driver manager resolves
             ├── ingest/test.py             # bulk ingest via dbapi Cursor.adbc_ingest()
             ├── ingest_low_level/test.py   # bulk ingest via set_options + bind_stream
+            ├── option_names/test.py       # firebolt.* keys through the driver manager
             ├── prepared_statements/test.py # parameter schema; request budget via mock_server
             ├── query_params/test.py       # $N binding: types, values, executemany, param('name')
             ├── security_*/test.py         # regression tests for fixed security issues
@@ -251,7 +252,7 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   `build/generated/Version.h`, whose `FIREBOLT_ADBC_VERSION` supplies
   `ADBC_INFO_DRIVER_VERSION`; the same value sets the target `VERSION`/`SOVERSION`.
   `release.yaml` refuses to publish when the git tag disagrees with it.
-- **A bad option is an error, not a shrug** — an unrecognised `adbc.firebolt.*` database
+- **A bad option is an error, not a shrug** — an unrecognised `firebolt.*` database
   key returns `ADBC_STATUS_NOT_FOUND` (keys outside that namespace stay accepted, since
   the driver manager sets some itself), a malformed `timeout_sec` returns
   `ADBC_STATUS_INVALID_ARGUMENT` rather than throwing `std::invalid_argument` through the
@@ -287,7 +288,7 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   records the build machine's bundle path, which names the Ubuntu builder image's layout
   and is wrong on RHEL, Amazon Linux or SUSE. The build sets `CURL_CA_BUNDLE`/`CURL_CA_PATH`
   to `none`, and `DatabaseInit` resolves one (`TlsConfig.cpp`):
-  `adbc.firebolt.ssl_certificate_path`, then `SSL_CERT_FILE`, then the standard distro
+  `firebolt.ssl_certificate_path`, then `SSL_CERT_FILE`, then the standard distro
   paths, handed to `CURLOPT_CAINFO`. A configured source that is unreadable is an error,
   not a fall-through. Verification has no off switch.
 - **TLS capability is asked of libcurl, not tracked in a define** — `curl_version_info`
@@ -364,10 +365,10 @@ error status, and the full Arrow→Firebolt type mapping. Summary only here.
 | Key | Set on | Description |
 |-----|--------|-------------|
 | `"uri"` | Database | HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` verifies the peer against the CA bundle chosen at `Init`. |
-| `"adbc.firebolt.token"` | Database, Connection | Bearer token — omit for an auth-disabled engine. Per-connection when set on the connection. Contradicts the SDK auth spec (a raw JWT belongs in `FIREBOLT_TOKEN`) and will be removed; see `docs/authentication.md`. |
-| `"adbc.firebolt.database"` | Database | Database name (appended as `?database=…` query param) |
-| `"adbc.firebolt.ssl_certificate_path"` | Database | PEM CA bundle for `https://`; default is `SSL_CERT_FILE`, then the distro bundle paths |
-| `"adbc.firebolt.timeout_sec"` | Database | Total request timeout in whole seconds; `0` (the default) disables it |
+| `"firebolt.token"` | Database, Connection | Bearer token — omit for an auth-disabled engine. Per-connection when set on the connection. Contradicts the SDK auth spec (a raw JWT belongs in `FIREBOLT_TOKEN`) and will be removed; see `docs/authentication.md`. |
+| `"firebolt.database"` | Database | Database name (appended as `?database=…` query param) |
+| `"firebolt.ssl_certificate_path"` | Database | PEM CA bundle for `https://`; default is `SSL_CERT_FILE`, then the distro bundle paths |
+| `"firebolt.timeout_sec"` | Database | Total request timeout in whole seconds; `0` (the default) disables it |
 | `ADBC_CONNECTION_OPTION_AUTOCOMMIT` | Connection | `false` enables explicit transactions: lazy `BEGIN`, then `Commit`/`Rollback` |
 | `ADBC_INGEST_OPTION_TARGET_TABLE` | Statement | Target table for the bind-data ingest path; auto-generates `INSERT INTO {target} ({cols}) SELECT * FROM read_arrow('upload://data.arrow')` on `ExecuteUpdate` |
 | `"adbc.statement.bind_by_name"` | Statement | `true` additionally names bound parameters after their columns (for `param('name')`); the positional `$N` names are always sent too, so a stale setting cannot unbind a placeholder. Only the canonical `true`/`false` accepted. Absent from the vendored ADBC 1.1.0 header, so defined locally |
@@ -419,5 +420,5 @@ This driver implements **none** of that yet: no discovery, no `client_credential
 names (`host`, `database`, `query_timeout`, … per
 `specs/schemas/connection-parameters.v1.json`) not yet adopted. `docs/authentication.md`
 documents the gap for users; the rename, when it happens, replaces the current
-`adbc.firebolt.*` keys outright rather than aliasing them — nothing external consumes
+`firebolt.*` keys outright rather than aliasing them — nothing external consumes
 them yet.

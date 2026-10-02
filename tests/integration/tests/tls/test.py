@@ -16,7 +16,7 @@
 
 Runs against tls_mock_server, an https:// mock serving a self-signed
 certificate.  The certificate is trusted only when named through
-adbc.firebolt.ssl_certificate_path, so these tests show both that the option
+firebolt.ssl_certificate_path, so these tests show both that the option
 works and that an untrusted peer is refused.
 """
 
@@ -49,7 +49,7 @@ def _select_one(server, **db_kwargs) -> pa.Table:
 
 def test_https_query_with_configured_ca_bundle(tls_mock_server):
     tls_mock_server.queue(body=_arrow_body())
-    table = _select_one(tls_mock_server, **{"adbc.firebolt.ssl_certificate_path": tls_mock_server.tls_cert})
+    table = _select_one(tls_mock_server, **{"firebolt.ssl_certificate_path": tls_mock_server.tls_cert})
     assert table.column("x").to_pylist() == [1]
 
 
@@ -63,5 +63,5 @@ def test_untrusted_certificate_is_refused(tls_mock_server):
 
 def test_missing_ca_bundle_rejected_at_init(tls_mock_server):
     with pytest.raises(adbc_driver_manager.ProgrammingError) as exc:
-        _select_one(tls_mock_server, **{"adbc.firebolt.ssl_certificate_path": "/no/such/ca.pem"})
+        _select_one(tls_mock_server, **{"firebolt.ssl_certificate_path": "/no/such/ca.pem"})
     assert "/no/such/ca.pem" in str(exc.value)

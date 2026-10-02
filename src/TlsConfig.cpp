@@ -39,7 +39,7 @@ CaBundleResult resolveCaBundle(const std::string & configured_path, const EnvLoo
         else
         {
             result.configuration_error = true;
-            result.error = "Option 'adbc.firebolt.ssl_certificate_path' names '" + configured_path + "', which is not a readable file";
+            result.error = "Option 'firebolt.ssl_certificate_path' names '" + configured_path + "', which is not a readable file";
         }
         return result;
     }
@@ -68,7 +68,7 @@ CaBundleResult resolveCaBundle(const std::string & configured_path, const EnvLoo
         tried += (tried.empty() ? "" : ", ") + candidate;
     }
     result.error = "No CA certificate bundle found for https:// (tried " + tried
-        + "). Install the system CA certificates, or point adbc.firebolt.ssl_certificate_path at a PEM bundle";
+        + "). Install the system CA certificates, or point firebolt.ssl_certificate_path at a PEM bundle";
     return result;
 }
 

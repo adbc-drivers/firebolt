@@ -40,11 +40,11 @@ def connection_settings() -> tuple[str, dict]:
     driver = os.environ.get("FIREBOLT_ADBC_DRIVER", DEFAULT_DRIVER)
     db_kwargs = {"uri": os.environ.get("FIREBOLT_URI", "http://localhost:3473")}
     if os.environ.get("FIREBOLT_DATABASE"):
-        db_kwargs["adbc.firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
+        db_kwargs["firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
     # Only for an engine that requires a bearer token.  Leave FIREBOLT_TOKEN
     # unset against an engine with authentication disabled.
     if os.environ.get("FIREBOLT_TOKEN"):
-        db_kwargs["adbc.firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
+        db_kwargs["firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
     return driver, db_kwargs
 
 

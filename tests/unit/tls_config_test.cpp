@@ -62,7 +62,7 @@ TEST(CaBundleTest, MissingConfiguredPathIsAConfigurationErrorNotAFallThrough)
     EXPECT_TRUE(r.path.empty());
     EXPECT_TRUE(r.configuration_error);
     EXPECT_NE(r.error.find("/no/such/ca.pem"), std::string::npos) << r.error;
-    EXPECT_NE(r.error.find("adbc.firebolt.ssl_certificate_path"), std::string::npos) << r.error;
+    EXPECT_NE(r.error.find("firebolt.ssl_certificate_path"), std::string::npos) << r.error;
 }
 
 TEST(CaBundleTest, SslCertFileBeatsStandardPaths)
@@ -103,5 +103,5 @@ TEST(CaBundleTest, NothingFoundNamesEveryPathTriedAndTheFix)
     EXPECT_FALSE(r.configuration_error);
     for (const auto & p : kStandardCaBundlePaths)
         EXPECT_NE(r.error.find(p), std::string::npos) << "missing " << p << " in: " << r.error;
-    EXPECT_NE(r.error.find("adbc.firebolt.ssl_certificate_path"), std::string::npos) << r.error;
+    EXPECT_NE(r.error.find("firebolt.ssl_certificate_path"), std::string::npos) << r.error;
 }

@@ -24,10 +24,10 @@ Options are set through whichever API your driver manager exposes. In Python:
 
 ```python
 # Database-level options
-dbapi.connect(driver=DRIVER, db_kwargs={"uri": ..., "adbc.firebolt.database": ...})
+dbapi.connect(driver=DRIVER, db_kwargs={"uri": ..., "firebolt.database": ...})
 
 # Connection-level options
-conn.adbc_connection.set_options(**{"adbc.firebolt.token": "..."})
+conn.adbc_connection.set_options(**{"firebolt.token": "..."})
 
 # Statement-level options
 stmt.set_options(**{"adbc.ingest.target_table": "events"})
@@ -42,10 +42,10 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 | Key | Required | Default | Meaning |
 |-----|----------|---------|---------|
 | `uri` | **yes** | — | The engine's HTTP endpoint, e.g. `http://localhost:3473`. Validated at `Init`: it must start with `http://` or `https://` (`https://` needs a TLS build, which is what ships). Used verbatim, so a path is preserved (`http://host/query` stays `/query`) and query parameters are appended to whatever is already there. |
-| `adbc.firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
-| `adbc.firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
-| `adbc.firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
-| `adbc.firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
+| `firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
+| `firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
+| `firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
+| `firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
 
 Errors:
 
@@ -54,11 +54,11 @@ Errors:
 | `uri` missing at `Init` | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` has no scheme, or a scheme other than http/https | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` is `https://` on a build without TLS | `ADBC_STATUS_INVALID_ARGUMENT` |
-| `adbc.firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` is `https://` and no system CA bundle exists | `ADBC_STATUS_INVALID_STATE` |
-| `uri` or `adbc.firebolt.ssl_certificate_path` set after `Init` | `ADBC_STATUS_INVALID_STATE`, at once |
-| `adbc.firebolt.timeout_sec` not a non-negative integer | `ADBC_STATUS_INVALID_ARGUMENT` |
-| unknown `adbc.firebolt.*` key | `ADBC_STATUS_NOT_FOUND` |
+| `uri` or `firebolt.ssl_certificate_path` set after `Init` | `ADBC_STATUS_INVALID_STATE`, at once |
+| `firebolt.timeout_sec` not a non-negative integer | `ADBC_STATUS_INVALID_ARGUMENT` |
+| unknown `firebolt.*` key | `ADBC_STATUS_NOT_FOUND` |
 
 All of these surface when you **open** the database, not from the individual
 option call — so in Python they are raised by `dbapi.connect(...)`, which is where
@@ -75,12 +75,12 @@ Set on `AdbcConnection`, before or after `AdbcConnectionInit`.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `adbc.connection.autocommit` | `true` | `false` starts explicit transactions: the driver issues `BEGIN` lazily before the first statement, and you then drive `AdbcConnectionCommit` / `AdbcConnectionRollback`. Setting it back to `true` while a transaction is open commits that transaction first. The value must be exactly `"true"` or `"false"`; anything else results in `ADBC_STATUS_INVALID_ARGUMENT` error. |
-| `adbc.firebolt.token` | inherited from the database | Per-connection bearer token. Two connections sharing one `AdbcDatabase` keep independent identities; setting it here never mutates the database default or the other connection. It is deliberately kept out of the session parameters below, because those are URL-encoded into every request line and would put the token in proxy and server access logs. May be set between `New` and `Init` — `Init` will not overwrite it. |
+| `firebolt.token` | inherited from the database | Per-connection bearer token. Two connections sharing one `AdbcDatabase` keep independent identities; setting it here never mutates the database default or the other connection. It is deliberately kept out of the session parameters below, because those are URL-encoded into every request line and would put the token in proxy and server access logs. May be set between `New` and `Init` — `Init` will not overwrite it. |
 | *any other key* | — | Stored as a **session parameter** and appended to the query URL of every subsequent request as `<key>=<value>` (URL-encoded). This is how you pass Firebolt query settings through. |
 
 Since unknown connection keys become session parameters, a typo here does not
 raise — it is sent to the server, which may reject it or ignore it. This differs
-on purpose from database options, where an unrecognised `adbc.firebolt.*` key is
+on purpose from database options, where an unrecognised `firebolt.*` key is
 an error.
 
 ### Server-driven session state
@@ -288,7 +288,7 @@ Two nullability rules, both forced by Firebolt:
 
 | Level | Unknown key behaviour |
 |-------|----------------------|
-| Database | `adbc.firebolt.*` → `ADBC_STATUS_NOT_FOUND`. Any other key is accepted and ignored, because the driver manager sets some itself and callers pass parameters this driver does not consume yet. |
+| Database | `firebolt.*` → `ADBC_STATUS_NOT_FOUND`. Any other key is accepted and ignored, because the driver manager sets some itself and callers pass parameters this driver does not consume yet. |
 | Connection | Accepted, and forwarded to the server as a session parameter. |
 | Statement | Accepted and ignored. |
 
@@ -317,13 +317,13 @@ today's names are stable and which are already superseded.
 | Today | Canonical | Note |
 |-------|-----------|------|
 | `uri` | `host` | Plus `ssl_mode` for the transport, instead of encoding it in the scheme. |
-| `adbc.firebolt.database` | `database` | Rename only. |
-| `adbc.firebolt.timeout_sec` | `query_timeout` | Rename only. |
-| `adbc.firebolt.token` | *(none)* | The spec has no connection field for a raw JWT: it comes from the `FIREBOLT_TOKEN` environment variable. This key will be removed. |
+| `firebolt.database` | `database` | Rename only. |
+| `firebolt.timeout_sec` | `query_timeout` | Rename only. |
+| `firebolt.token` | *(none)* | The spec has no connection field for a raw JWT: it comes from the `FIREBOLT_TOKEN` environment variable. This key will be removed. |
 | — | `username` / `password` | OAuth `client_id` / `client_secret` for the `client_credentials` grant. Not implemented yet. |
 | — | `engine` | Engine selector, sent per request. Not implemented yet. |
 | — | `authorization_server` | Which discovered authorization server to use. Not implemented yet. |
-| `adbc.firebolt.ssl_certificate_path` | `ssl_certificate_path` | Rename only. |
+| `firebolt.ssl_certificate_path` | `ssl_certificate_path` | Rename only. |
 | — | `ssl_mode` | Not implemented: TLS follows the `uri` scheme and always verifies (`verify-full`). |
 | — | `use_token_cache`, `connection_timeout`, `max_retries`, `user_agent` | Not implemented yet. |
 

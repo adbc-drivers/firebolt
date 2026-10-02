@@ -137,7 +137,7 @@ def test_token_not_in_url(mock_server, conn_to_mock):
     """Belt-and-braces sanity tied to fix #1: setting a token must not put it
     in the URL.  Captured here in the same hijack suite because both fixes
     share the URL-leak attack surface."""
-    conn_to_mock.set_options(**{"adbc.firebolt.token": "secret_jwt_value"})
+    conn_to_mock.set_options(**{"firebolt.token": "secret_jwt_value"})
     _run_select_one(conn_to_mock)
 
     assert mock_server.last_request is not None

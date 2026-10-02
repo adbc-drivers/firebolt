@@ -195,8 +195,8 @@ TEST(DatabaseTest, NewInitRelease)
 
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "http://localhost:9123", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.token", "tok", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.database", "mydb", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.token", "tok", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.database", "mydb", &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseRelease(&db, &error), ADBC_STATUS_OK);
     if (error.release)
@@ -256,13 +256,13 @@ AdbcStatusCode InitWithOption(AdbcDriver & driver, const char * key, const char 
 TEST(DatabaseOptionTest, UnknownFireboltOptionRejected)
 {
     // A typo in a driver-namespaced key is a configuration bug, not something
-    // to swallow: `adbc.firebolt.databse` would otherwise leave the connection
+    // to swallow: `firebolt.databse` would otherwise leave the connection
     // pointed at the server's default database with no diagnostic anywhere.
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.databse", "mydb", &error), ADBC_STATUS_NOT_FOUND);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.databse", "mydb", &error), ADBC_STATUS_NOT_FOUND);
     ASSERT_NE(error.message, nullptr);
-    EXPECT_NE(std::string(error.message).find("adbc.firebolt.databse"), std::string::npos)
+    EXPECT_NE(std::string(error.message).find("firebolt.databse"), std::string::npos)
         << "the error should name the offending key, got: " << error.message;
     if (error.release)
         error.release(&error);
@@ -277,7 +277,7 @@ TEST(DatabaseOptionTest, UnknownFireboltOptionRejectedImmediatelyAfterInit)
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "http://localhost:3473", &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK);
-    EXPECT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.nonsense", "x", &error), ADBC_STATUS_NOT_FOUND);
+    EXPECT_EQ(driver.DatabaseSetOption(&db, "firebolt.nonsense", "x", &error), ADBC_STATUS_NOT_FOUND);
     driver.DatabaseRelease(&db, nullptr);
     if (error.release)
         error.release(&error);
@@ -294,7 +294,7 @@ TEST(DatabaseOptionTest, EndpointAndCaBundleRefusedAfterInit)
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "http://localhost:3473", &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK);
-    for (const char * key : {"uri", "adbc.firebolt.ssl_certificate_path"})
+    for (const char * key : {"uri", "firebolt.ssl_certificate_path"})
     {
         EXPECT_EQ(driver.DatabaseSetOption(&db, key, "https://elsewhere.example.com", &error), ADBC_STATUS_INVALID_STATE) << key;
         ASSERT_NE(error.message, nullptr) << key;
@@ -307,7 +307,7 @@ TEST(DatabaseOptionTest, EndpointAndCaBundleRefusedAfterInit)
 
 TEST(DatabaseOptionTest, NonNamespacedOptionStillAccepted)
 {
-    // Keys outside the adbc.firebolt.* namespace are set by the driver manager
+    // Keys outside the firebolt.* namespace are set by the driver manager
     // itself and by callers passing future connection parameters; they must
     // keep being accepted so that rejecting typos does not break them.
     AdbcDriver driver = InitDriver();
@@ -325,7 +325,7 @@ TEST(DatabaseOptionTest, NonNumericTimeoutRejected)
     // aborts the host process.  It has to become a status code.
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "soon", &error), ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "soon", &error), ADBC_STATUS_INVALID_ARGUMENT);
     EXPECT_NE(error.message, nullptr);
     if (error.release)
         error.release(&error);
@@ -336,7 +336,7 @@ TEST(DatabaseOptionTest, TimeoutWithTrailingGarbageRejected)
     // std::stol would happily parse "30s" as 30 and drop the suffix.
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "30s", &error), ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "30s", &error), ADBC_STATUS_INVALID_ARGUMENT);
     if (error.release)
         error.release(&error);
 }
@@ -346,7 +346,7 @@ TEST(DatabaseOptionTest, OutOfRangeTimeoutRejected)
     // std::out_of_range, same C ABI problem as above.
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "99999999999999999999999", &error), ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "99999999999999999999999", &error), ADBC_STATUS_INVALID_ARGUMENT);
     if (error.release)
         error.release(&error);
 }
@@ -355,7 +355,7 @@ TEST(DatabaseOptionTest, NegativeTimeoutRejected)
 {
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "-5", &error), ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "-5", &error), ADBC_STATUS_INVALID_ARGUMENT);
     if (error.release)
         error.release(&error);
 }
@@ -364,8 +364,8 @@ TEST(DatabaseOptionTest, ValidTimeoutAccepted)
 {
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "30", &error), ADBC_STATUS_OK);
-    EXPECT_EQ(InitWithOption(driver, "adbc.firebolt.timeout_sec", "0", &error), ADBC_STATUS_OK);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "30", &error), ADBC_STATUS_OK);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.timeout_sec", "0", &error), ADBC_STATUS_OK);
     if (error.release)
         error.release(&error);
 }
@@ -378,8 +378,8 @@ TEST(DatabaseOptionTest, FirstRejectedOptionIsTheOneReported)
     AdbcError error = ADBC_ERROR_INIT;
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "http://localhost:3473", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.first_typo", "a", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.second_typo", "b", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.first_typo", "a", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.second_typo", "b", &error), ADBC_STATUS_OK);
     EXPECT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_NOT_FOUND);
     ASSERT_NE(error.message, nullptr);
     EXPECT_NE(std::string(error.message).find("first_typo"), std::string::npos) << "got: " << error.message;
@@ -456,7 +456,7 @@ TEST(DatabaseInitTest, HttpsUriRejectedWhenCurlHasNoTls)
     AdbcDatabase db{};
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "https://api.example.com", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.ssl_certificate_path", ca_path, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", ca_path, &error), ADBC_STATUS_OK);
     AdbcStatusCode code = driver.DatabaseInit(&db, &error);
     driver.DatabaseRelease(&db, nullptr);
     std::remove(ca_path);
@@ -484,7 +484,7 @@ TEST(DatabaseInitTest, MissingSslCertificatePathRejectedAtInit)
     AdbcDatabase db{};
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "https://api.example.com", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.ssl_certificate_path", "/no/such/ca.pem", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", "/no/such/ca.pem", &error), ADBC_STATUS_OK);
     AdbcStatusCode code = driver.DatabaseInit(&db, &error);
     driver.DatabaseRelease(&db, nullptr);
     EXPECT_EQ(code, ADBC_STATUS_INVALID_ARGUMENT);
@@ -505,7 +505,7 @@ static void SetupDatabase(AdbcDriver & driver, AdbcDatabase & db)
     AdbcError error = ADBC_ERROR_INIT;
     driver.DatabaseNew(&db, &error);
     driver.DatabaseSetOption(&db, "uri", "http://localhost:9123", &error);
-    driver.DatabaseSetOption(&db, "adbc.firebolt.token", "testtoken", &error);
+    driver.DatabaseSetOption(&db, "firebolt.token", "testtoken", &error);
     driver.DatabaseInit(&db, &error);
     if (error.release)
         error.release(&error);
@@ -560,8 +560,8 @@ TEST(ConnectionTest, PerConnectionTokensAreIndependent)
     ASSERT_EQ(driver.ConnectionNew(&conn_b, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.ConnectionInit(&conn_b, &db, &error), ADBC_STATUS_OK);
 
-    ASSERT_EQ(driver.ConnectionSetOption(&conn_a, "adbc.firebolt.token", "tokenA", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.ConnectionSetOption(&conn_b, "adbc.firebolt.token", "tokenB", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn_a, "firebolt.token", "tokenA", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn_b, "firebolt.token", "tokenB", &error), ADBC_STATUS_OK);
 
     auto * fc_a = static_cast<firebolt::adbc::FireboltConnection *>(conn_a.private_data);
     auto * fc_b = static_cast<firebolt::adbc::FireboltConnection *>(conn_b.private_data);
@@ -594,11 +594,11 @@ TEST(ConnectionTest, SecondConnectionDoesNotOverrideFirst)
     driver.ConnectionNew(&conn_b, &error);
     driver.ConnectionInit(&conn_b, &db, &error);
 
-    ASSERT_EQ(driver.ConnectionSetOption(&conn_a, "adbc.firebolt.token", "tokenA", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn_a, "firebolt.token", "tokenA", &error), ADBC_STATUS_OK);
     auto * fc_a = static_cast<firebolt::adbc::FireboltConnection *>(conn_a.private_data);
     ASSERT_EQ(fc_a->token, "tokenA");
 
-    ASSERT_EQ(driver.ConnectionSetOption(&conn_b, "adbc.firebolt.token", "tokenB", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn_b, "firebolt.token", "tokenB", &error), ADBC_STATUS_OK);
     EXPECT_EQ(fc_a->token, "tokenA") << "connection A's token was clobbered when connection B set its token";
 
     driver.ConnectionRelease(&conn_a, nullptr);
@@ -624,12 +624,12 @@ TEST(ConnectionTest, TokenSetBeforeInitIsPreserved)
     AdbcConnection conn{};
     AdbcError error = ADBC_ERROR_INIT;
     ASSERT_EQ(driver.ConnectionNew(&conn, &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.ConnectionSetOption(&conn, "adbc.firebolt.token", "preInitToken", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn, "firebolt.token", "preInitToken", &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.ConnectionInit(&conn, &db, &error), ADBC_STATUS_OK);
 
     auto * fc = static_cast<firebolt::adbc::FireboltConnection *>(conn.private_data);
     ASSERT_NE(fc, nullptr);
-    EXPECT_EQ(fc->token, "preInitToken") << "pre-Init ConnectionSetOption('adbc.firebolt.token') was clobbered by fdb->token in Init";
+    EXPECT_EQ(fc->token, "preInitToken") << "pre-Init ConnectionSetOption('firebolt.token') was clobbered by fdb->token in Init";
 
     driver.ConnectionRelease(&conn, nullptr);
     driver.DatabaseRelease(&db, nullptr);
@@ -651,11 +651,11 @@ TEST(ConnectionTest, TokenNotStoredInSessionParams)
     AdbcError error = ADBC_ERROR_INIT;
     driver.ConnectionNew(&conn, &error);
     driver.ConnectionInit(&conn, &db, &error);
-    ASSERT_EQ(driver.ConnectionSetOption(&conn, "adbc.firebolt.token", "secret_jwt", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.ConnectionSetOption(&conn, "firebolt.token", "secret_jwt", &error), ADBC_STATUS_OK);
 
     auto * fc = static_cast<firebolt::adbc::FireboltConnection *>(conn.private_data);
     ASSERT_NE(fc, nullptr);
-    EXPECT_EQ(fc->session_params.count("adbc.firebolt.token"), 0u) << "token leaked into session_params; will be appended to query URL";
+    EXPECT_EQ(fc->session_params.count("firebolt.token"), 0u) << "token leaked into session_params; will be appended to query URL";
 
     driver.ConnectionRelease(&conn, nullptr);
     driver.DatabaseRelease(&db, nullptr);

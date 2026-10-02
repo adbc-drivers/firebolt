@@ -28,7 +28,7 @@ namespace firebolt::adbc
 // build disables that default (CURL_CA_BUNDLE=none) and the driver picks a
 // bundle at DatabaseInit instead, in this order:
 //
-//   1. the adbc.firebolt.ssl_certificate_path option, when set;
+//   1. the firebolt.ssl_certificate_path option, when set;
 //   2. the SSL_CERT_FILE environment variable, the OpenSSL convention;
 //   3. the first readable file among kStandardCaBundlePaths.
 //

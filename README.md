@@ -32,7 +32,7 @@ Read this before you build anything on it.
 
 | | |
 |---|---|
-| **Transport** | `http://` and `https://`. TLS verifies the peer against the system CA bundle, found at run time; `adbc.firebolt.ssl_certificate_path` names another. There is no way to switch verification off. |
+| **Transport** | `http://` and `https://`. TLS verifies the peer against the system CA bundle, found at run time; `firebolt.ssl_certificate_path` names another. There is no way to switch verification off. |
 | **Authentication** | Engines with authentication **disabled**, plus an optional bearer token you obtained elsewhere. Firebolt's discovery-based OAuth flow is **not** implemented. See [docs/authentication.md](docs/authentication.md). |
 | **Platforms** | Linux x86_64 and aarch64, glibc 2.34 or newer. No macOS or Windows build. |
 | **ADBC** | The full ADBC 1.0.0 function set. Reports itself as 1.1.0, but the 1.1.0-only entry points are not implemented — see [Feature & Type Support](#feature--type-support). |
@@ -403,9 +403,9 @@ The four database options, in full:
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `uri` | **yes** | Engine HTTP endpoint, e.g. `http://localhost:3473`. |
-| `adbc.firebolt.database` | no | Database name; sent as `database=` on every request. |
-| `adbc.firebolt.token` | no | Bearer token. Omit for an engine with authentication disabled. |
-| `adbc.firebolt.timeout_sec` | no | Request timeout in whole seconds; `0` (the default) disables it. |
+| `firebolt.database` | no | Database name; sent as `database=` on every request. |
+| `firebolt.token` | no | Bearer token. Omit for an engine with authentication disabled. |
+| `firebolt.timeout_sec` | no | Request timeout in whole seconds; `0` (the default) disables it. |
 
 Connection and statement options, ingest modes, the session-parameter protocol,
 and the type mapping are all in **[OPTIONS.md](OPTIONS.md)**.
@@ -422,11 +422,11 @@ today's names to the canonical ones is in
 | `Database 'uri' option is required` | No `uri` in `db_kwargs`. |
 | `Database 'uri' must start with http:// or https://` | You passed a bare host (`localhost:3473`) or a `firebolt://` URI. This driver takes the engine's HTTP endpoint. |
 | `... is https:// but this driver was built without TLS support` | A self-built driver configured with `-DWITH_SSL=OFF`. Released builds have TLS; rebuild with the default `WITH_SSL=ON`. |
-| `No CA certificate bundle found for https://` | The host has no system CA certificates (common in minimal containers). Install them (`ca-certificates` on Debian/Ubuntu/RHEL), or set `adbc.firebolt.ssl_certificate_path` to a PEM bundle. |
-| `IO: curl error: SSL peer certificate or SSH remote key was not OK` | The server's certificate does not chain to a trusted CA, or its name does not match the `uri` host. For a private CA, point `adbc.firebolt.ssl_certificate_path` at its PEM file. |
+| `No CA certificate bundle found for https://` | The host has no system CA certificates (common in minimal containers). Install them (`ca-certificates` on Debian/Ubuntu/RHEL), or set `firebolt.ssl_certificate_path` to a PEM bundle. |
+| `IO: curl error: SSL peer certificate or SSH remote key was not OK` | The server's certificate does not chain to a trusted CA, or its name does not match the `uri` host. For a private CA, point `firebolt.ssl_certificate_path` at its PEM file. |
 | `IO: curl error: Couldn't connect to server` | Nothing is listening. Check the container is up and the port matches: `curl -fsS http://localhost:3473/ping`. |
 | `Cluster not yet healthy` | The engine answers `/ping` before it can serve queries. Retry `SELECT 1` for a few seconds. |
-| `UNAUTHORIZED: HTTP 401` / `403` | The engine wants authentication. Supply `adbc.firebolt.token`; see [docs/authentication.md](docs/authentication.md). |
+| `UNAUTHORIZED: HTTP 401` / `403` | The engine wants authentication. Supply `firebolt.token`; see [docs/authentication.md](docs/authentication.md). |
 | `Query referenced positional parameter $1, but it was not set` | The statement has more `$N` placeholders than you passed values for. Note `$1` is 1-based. |
 | `NOT_IMPLEMENTED: Cannot bind a parameter of Arrow type binary` | `bytes`, lists and structs cannot be query parameters <sup>[4](#fn4)</sup>. Ingest them, or encode them to text yourself. |
 | `INVALID_ARGUMENT: Parameter value … exceeds the BIGINT range` | A `uint64` above `int64` max; Firebolt parameters are signed. |
@@ -434,7 +434,7 @@ today's names to the canonical ones is in
 | `INVALID_ARGUMENT: Parameter value … is not a valid time of day` | A negative `time32`/`time64` value. |
 | `execute()` with several parameter sets returns only one result set | Expected: the statement runs once per bound row, and the returned result is the last execution's. Use `executemany()` when you do not want a result. |
 | A parameter compares as text against a typed column | Add an explicit cast: `$1::DATE`, `param('n')::INT` <sup>[19](#fn19)</sup>. |
-| `NOT_FOUND: Unknown Firebolt database option '…'` | A misspelled `adbc.firebolt.*` key. Compare against [OPTIONS.md](OPTIONS.md). |
+| `NOT_FOUND: Unknown Firebolt database option '…'` | A misspelled `firebolt.*` key. Compare against [OPTIONS.md](OPTIONS.md). |
 | `NOT_IMPLEMENTED: Temporary ingest tables are not supported` | `adbc_ingest(..., temporary=True)`. Firebolt has no session-temporary tables. |
 | `NOT_IMPLEMENTED: ingest column type cannot be mapped …` | The Arrow schema has a type with no Firebolt equivalent. Cast it before ingesting. |
 | `current transaction is aborted, commands will be ignored …` | A statement failed inside an open transaction. Call `conn.rollback()`. `dbapi.connect()` disables autocommit by default, so you may be in a transaction you did not open. |

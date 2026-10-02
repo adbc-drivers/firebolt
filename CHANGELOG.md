@@ -27,7 +27,7 @@ All notable changes to this project are documented here. The format follows
 - **TLS.** Released builds now link BoringSSL, so `https://` endpoints work. The peer is
   always verified. The CA bundle is found at run time — `SSL_CERT_FILE`, then the
   Debian, RHEL and SUSE locations — or named with the new
-  `adbc.firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
+  `firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
   with a message naming every path tried.
 
 ### Changed
@@ -43,6 +43,9 @@ All notable changes to this project are documented here. The format follows
   Foundry file name from which a driver manager derives `AdbcDriverFireboltInit`. Releases
   ship one `adbc_driver_firebolt-linux-<arch>.tar.gz` per architecture holding the
   library, `LICENSE.txt` and `NOTICE.txt`, instead of a renamed `.so` per architecture.
+- **Driver options are named `firebolt.*`** (`firebolt.token`, `firebolt.database`,
+  `firebolt.timeout_sec`, `firebolt.ssl_certificate_path`) instead of `adbc.firebolt.*`,
+  per the Foundry option-naming rule.
 
 ## [0.1.1] - 2026-08-11
 

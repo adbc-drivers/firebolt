@@ -42,7 +42,7 @@ this is what you get out of the box locally.
 
 ### A bearer token you already have
 
-If your engine accepts a bearer token, pass it as `adbc.firebolt.token` and the
+If your engine accepts a bearer token, pass it as `firebolt.token` and the
 driver sends `Authorization: Bearer <token>` on every request:
 
 ```python
@@ -52,7 +52,7 @@ conn = dbapi.connect(
     driver="/path/to/libadbc_driver_firebolt.so",
     db_kwargs={
         "uri": "http://engine.internal:3473",
-        "adbc.firebolt.token": os.environ["FIREBOLT_TOKEN"],
+        "firebolt.token": os.environ["FIREBOLT_TOKEN"],
     },
 )
 ```
@@ -67,7 +67,7 @@ Two caveats:
   exposed on the wire to anything other than a loopback address. Firebolt's SDK
   specification forbids sending a token over an unencrypted transport for exactly
   this reason. The driver does not enforce it yet.
-- **`adbc.firebolt.token` is temporary.** The specification has no
+- **`firebolt.token` is temporary.** The specification has no
   connection-string field for a raw JWT; it comes from the environment instead.
   This option will be removed when the driver reads `FIREBOLT_TOKEN` itself.
 
@@ -141,7 +141,7 @@ Tracked separately; none of it is implemented here yet.
 | No `ssl_mode` | TLS follows the `uri` scheme: `https://` always verifies the peer (`verify-full`), `http://` is plaintext. A token is not refused over `http://`. |
 | No `/.well-known/firebolt` discovery | The driver cannot tell whether an engine wants authentication; you have to know. |
 | No `client_credentials` grant | No `username` / `password`; you must obtain a token out of band. |
-| No `FIREBOLT_TOKEN` support | You have to read the variable yourself and pass `adbc.firebolt.token`. |
+| No `FIREBOLT_TOKEN` support | You have to read the variable yourself and pass `firebolt.token`. |
 | No token cache or `401` retry | An expired token surfaces as an error; nothing re-acquires it. |
 | No `engine` selector | You cannot choose an engine behind a gateway. |
 
