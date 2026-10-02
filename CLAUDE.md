@@ -80,7 +80,9 @@ private keys, including test material: generate test certificates at run time.
 │   ├── TlsConfig.h/.cpp                   # CA-bundle choice at DatabaseInit (option, SSL_CERT_FILE, distro paths)
 │   ├── fb2/                               # FB2 SaaS (Legacy) mode — isolated, see the design decision
 │   │   ├── Fb2LegacyMode.h                # the only header the main code includes: keys + hook interface
-│   │   └── Fb2LegacyMode.cpp              # the mode
+│   │   ├── Fb2LegacyMode.cpp              # the mode
+│   │   ├── Fb2Http.h/.cpp                 # the mode's own control-plane requests (no redirects followed)
+│   │   └── Fb2TokenClient.h/.cpp          # client_credentials exchange + process-wide token cache
 │   ├── Version.h.in                       # → build/generated/Version.h; FIREBOLT_ADBC_VERSION
 │   └── ArrowIpcStream.h/.cpp              # Arrow IPC bytes → ArrowArrayStream via nanoarrow 0.8.0
 │
@@ -105,7 +107,8 @@ private keys, including test material: generate test certificates at run time.
     │   ├── adbc_driver_test.cpp           # Google Test unit tests (no server needed)
     │   ├── firebolt_uri_test.cpp          # firebolt:// URI parsing
     │   ├── tls_config_test.cpp            # CA-bundle lookup order
-    │   └── fb2_legacy_test.cpp            # FB2 SaaS (Legacy) mode options
+    │   ├── fb2_legacy_test.cpp            # FB2 SaaS (Legacy) mode options
+    │   └── fb2_token_client_test.cpp      # FB2 token request/response parsing and cache expiry
     └── integration/                       # pytest harness — runs inside a runner container
         ├── runner.py                      # spins up runner image + 1-node Firebolt engine,
         │                                  #   exec's pytest. Args: --engine-image, --adbc-binary
@@ -137,6 +140,7 @@ private keys, including test material: generate test certificates at run time.
             ├── query_params/test.py       # $N binding: types, values, executemany, param('name')
             ├── security_*/test.py         # regression tests for fixed security issues
             ├── tls/test.py                # https:// via the TLS mock: CA option, strict verification
+            ├── fb2_legacy/test.py         # FB2 only: the mode against a mock 2.0 control plane
             └── struct_type/test.py        # STRUCT / ARRAY(STRUCT) retrieval and ingest
 ```
 
