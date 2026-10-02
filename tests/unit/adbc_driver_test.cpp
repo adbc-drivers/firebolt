@@ -26,6 +26,7 @@
 #include <nanoarrow/nanoarrow_ipc.hpp>
 
 #include <curl/curl.h>
+#include <dlfcn.h>
 
 #include <cstdio>
 #include <cstring>
@@ -37,7 +38,7 @@
 
 // Entry points defined in FireboltAdbcDriver.cpp
 extern "C" AdbcStatusCode AdbcDriverInit(int version, void * raw_driver, AdbcError * error);
-extern "C" AdbcStatusCode FireboltAdbcDriverInit(int version, void * raw_driver, AdbcError * error);
+extern "C" AdbcStatusCode AdbcDriverFireboltInit(int version, void * raw_driver, AdbcError * error);
 
 // Whether the libcurl this driver is linked against can speak TLS.  The
 // shipped build sets -DWITH_SSL=OFF, so it cannot; the https:// rejection
@@ -166,10 +167,20 @@ TEST(AdbcDriverInitTest, FireboltEntryPoint)
 {
     AdbcDriver driver{};
     AdbcError error = ADBC_ERROR_INIT;
-    AdbcStatusCode code = FireboltAdbcDriverInit(ADBC_VERSION_1_1_0, &driver, &error);
+    AdbcStatusCode code = AdbcDriverFireboltInit(ADBC_VERSION_1_1_0, &driver, &error);
     EXPECT_EQ(code, ADBC_STATUS_OK);
     if (error.release)
         error.release(&error);
+}
+
+// The test binary links the shared library, so dlsym sees exactly what the
+// version script exports: the generic entry point, the driver-specific one a
+// driver manager derives from the driver name, and nothing outside `Adbc*`.
+TEST(AdbcDriverInitTest, ExportsOnlyAdbcEntryPoints)
+{
+    EXPECT_NE(dlsym(RTLD_DEFAULT, "AdbcDriverInit"), nullptr);
+    EXPECT_NE(dlsym(RTLD_DEFAULT, "AdbcDriverFireboltInit"), nullptr);
+    EXPECT_EQ(dlsym(RTLD_DEFAULT, "FireboltAdbcDriverInit"), nullptr);
 }
 
 // ============================================================

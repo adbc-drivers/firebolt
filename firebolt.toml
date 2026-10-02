@@ -45,8 +45,8 @@ source = "https://github.com/firebolt-db/firebolt-adbc"
 [Driver]
 # The driver exports the standard `AdbcDriverInit` symbol, which is what the
 # driver manager looks for by default, so no `entrypoint` is needed here.
-# It also exports `FireboltAdbcDriverInit` as an alias if you want to be
-# explicit: entrypoint = "FireboltAdbcDriverInit"
+# It also exports the driver-specific `AdbcDriverFireboltInit` if you want to be
+# explicit: entrypoint = "AdbcDriverFireboltInit"
 
 [Driver.shared]
 linux_amd64 = "/usr/local/lib/libfirebolt_adbc.so"

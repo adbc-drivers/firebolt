@@ -117,6 +117,7 @@ private keys, including test material: generate test certificates at run time.
             ├── datatypes/test.py          # int/float/string/bool/null/date/timestamp scalars
             ├── decimal_type/test.py       # DECIMAL literals, arithmetic, precision/scale
             ├── dml/test.py                # DDL, INSERT/SELECT, aggregates, type roundtrip
+            ├── driver_loading/test.py     # entry-point names a driver manager resolves
             ├── ingest/test.py             # bulk ingest via dbapi Cursor.adbc_ingest()
             ├── ingest_low_level/test.py   # bulk ingest via set_options + bind_stream
             ├── prepared_statements/test.py # parameter schema; request budget via mock_server
@@ -218,7 +219,9 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   `snprintf` and `withTimeUnit` dispatches an Arrow time unit to its duration type.
   Hence no vendored date library.
 - **Version script** (`firebolt_adbc.version`) — exports only `AdbcDriverInit` and
-  `FireboltAdbcDriverInit`; all other symbols (including libc++ internals) are hidden.
+  `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from the
+  driver name; all other symbols (including libc++ internals) are hidden, and nothing
+  outside `Adbc*` is exported.
 - **Post-build dependency report** — every build prints concise `DT_NEEDED` `.so` names
   for `libfirebolt_adbc.so` so dynamic dependencies are visible in Ninja logs.
 - **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` wraps table

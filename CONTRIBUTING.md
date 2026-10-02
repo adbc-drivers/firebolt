@@ -95,7 +95,7 @@ Delete `build/` and re-run.
   everything must exist under `submodule/`. See [CLAUDE.md](CLAUDE.md) for why.
 - **No packdb internal headers.** The `.so` has to load outside the server
   process.
-- **Only `AdbcDriverInit` and `FireboltAdbcDriverInit` are exported**, enforced by
+- **Only `AdbcDriverInit` and `AdbcDriverFireboltInit` are exported**, enforced by
   `firebolt_adbc.version`. If you add a public entry point, add it there too.
 - **Test the failure, not just the success.** Every option the driver accepts has
   a wrong value someone will pass; the interesting test is what happens then. An

@@ -1212,7 +1212,9 @@ extern "C" __attribute__((visibility("default"))) AdbcStatusCode AdbcDriverInit(
     return firebolt::adbc::PopulateDriver(static_cast<AdbcDriver *>(raw_driver), error);
 }
 
-extern "C" __attribute__((visibility("default"))) AdbcStatusCode FireboltAdbcDriverInit(int version, void * raw_driver, AdbcError * error)
+// The driver-specific entry point a driver manager derives from the driver name
+// ("firebolt" -> AdbcDriverFireboltInit), so several drivers can share a process.
+extern "C" __attribute__((visibility("default"))) AdbcStatusCode AdbcDriverFireboltInit(int version, void * raw_driver, AdbcError * error)
 {
     return AdbcDriverInit(version, raw_driver, error);
 }
