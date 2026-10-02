@@ -94,12 +94,7 @@ class TestRequestBudget:
             stmt.set_sql_query("SELECT $1")
             stmt.prepare()
             stmt.bind(pa.record_batch([[41]], names=["0"]))
-            try:
-                stmt.execute_query()
-            except adbc_driver_manager.OperationalError:
-                # The mock answers 200 with an empty body, so the driver reports an
-                # Arrow parse error.  Only the captured request matters here.
-                pass
+            stmt.execute_query()
 
         assert len(mock_server.captured) == 1, "Prepare must not add a round-trip"
         path = mock_server.captured[0].path
@@ -175,10 +170,7 @@ class TestRequestBudget:
         conn_to_mock.set_options(**{"adbc.connection.autocommit": "false"})
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT 1")
-            try:
-                stmt.execute_query()
-            except adbc_driver_manager.OperationalError:
-                pass
+            stmt.execute_query()
 
             stmt.set_sql_query("SELECT $1")
             stmt.get_parameter_schema()
@@ -202,10 +194,7 @@ class TestRequestBudget:
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
             stmt.bind(pa.record_batch([[41]], names=["0"]))
-            try:
-                stmt.execute_query()
-            except adbc_driver_manager.OperationalError:
-                pass
+            stmt.execute_query()
 
         assert len(mock_server.captured) == 1
         assert _query_param(mock_server.captured[0].path, "query_parameters") == [
@@ -240,12 +229,7 @@ class TestRequestBudget:
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
             stmt.bind(pa.record_batch([[1, 2]], names=["0"]))
-            try:
-                stmt.execute_query()
-            except adbc_driver_manager.OperationalError:
-                # The mock answers 200 with an empty body, so importing the result
-                # fails; the requests are what this test is about.
-                pass
+            stmt.execute_query()
 
         assert len(mock_server.captured) == 2
         sent = [

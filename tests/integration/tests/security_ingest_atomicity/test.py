@@ -107,10 +107,7 @@ def test_failed_ingest_does_not_carry_bytes_to_next_query(conn_to_mock, mock_ser
         # Step 2: issue a plain SELECT on the SAME statement.  The mock
         # server returns 200/empty, but we only care about the request shape.
         stmt.set_sql_query("SELECT 1")
-        try:
-            stmt.execute_query()
-        except adbc_driver_manager.OperationalError:
-            pass
+        stmt.execute_query()
 
     # The second request must not be multipart (which would mean bound bytes
     # rode along).  set_sql_query also clears ingest state, so the second

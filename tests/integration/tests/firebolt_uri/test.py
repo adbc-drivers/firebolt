@@ -54,10 +54,7 @@ def test_path_names_the_database(mock_server):
         adbc_driver_manager.AdbcStatement(conn) as stmt,
     ):
         stmt.set_sql_query("SELECT 1")
-        try:
-            stmt.execute_query()
-        except adbc_driver_manager.OperationalError:
-            pass  # the mock's empty 200 body is not an Arrow stream; only the request matters
+        stmt.execute_query()
 
     assert "database=analytics" in mock_server.last_request.path
 

@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adapted from packdb's .clang-tidy: the same curated check list and naming
-# rules, with these differences:
-#   - no boost-* checks: the driver does not use Boost;
-#   - no google-runtime-int: `long` is libcurl's API type (CURLOPT_TIMEOUT,
-#     CURLINFO_RESPONSE_CODE), so int64 would be the wrong type there.
+# A curated check list plus naming rules; every warning is an error.
+# google-runtime-int is deliberately absent: `long` is libcurl's API type
+# (CURLOPT_TIMEOUT, CURLINFO_RESPONSE_CODE), so int64 would be wrong there.
 # Run with scripts/clang-tidy.sh, which uses the builder image's clang-tidy-18.
 Checks: '-*,
     misc-throw-by-value-catch-by-reference,

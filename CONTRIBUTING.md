@@ -59,7 +59,7 @@ pre-commit run --all-files      # or run them all by hand
 clang-tidy reads `build/compile_commands.json` and runs inside the builder
 image, so it needs a `./scripts/build.sh` first. If the image was built before
 clang-tidy was added to it, delete it and re-run the build. Its checks, in
-`.clang-tidy`, are adapted from packdb's, and every warning is an error.
+`.clang-tidy`, treat every warning as an error.
 `SKIP=clang-tidy git commit` skips it when there is no build at hand; CI runs it
 regardless.
 

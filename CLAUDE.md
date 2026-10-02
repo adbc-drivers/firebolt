@@ -46,7 +46,7 @@ private keys, including test material: generate test certificates at run time.
 ├── LICENSE.txt                            # Apache 2.0
 ├── NOTICE.txt                             # attribution notice
 ├── .pre-commit-config.yaml                # linters: clang-format, clang-tidy, ruff, shellcheck, codespell, rat
-├── .clang-format / .clang-tidy            # C++ style and static checks (.clang-tidy adapted from packdb)
+├── .clang-format / .clang-tidy            # C++ style and static checks
 ├── .rat-excludes / .rat-apache            # license check: files without a header / taken from Apache (adbc.h)
 │
 ├── docs/
@@ -237,9 +237,9 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 - **clang-tidy runs in the builder image, from `compile_commands.json`** — the build
   exports it (`CMAKE_EXPORT_COMPILE_COMMANDS`), and `scripts/clang-tidy.sh` runs the
   image's `clang-tidy-18`, so every machine and CI apply one version to the flags the
-  driver is really compiled with. The checks are packdb's list and naming rules,
-  minus `boost-*` (no Boost here) and `google-runtime-int` (`long` is libcurl's API
-  type); all warnings are errors. The header filter is passed by the script, anchored
+  driver is really compiled with. The checks are a curated list plus naming rules,
+  without `google-runtime-int` (`long` is libcurl's API type); all warnings are
+  errors. The header filter is passed by the script, anchored
   at the repository root, because a relative one would also match `submodule/*/src/`.
   The pre-commit hook needs a build, so CI's lint job skips it and the build job runs
   the script.

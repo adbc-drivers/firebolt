@@ -42,12 +42,7 @@ def _capture_query_param(captured_path: str, name: str) -> list[str]:
 def _run_select_one(conn) -> None:
     with adbc_driver_manager.AdbcStatement(conn) as stmt:
         stmt.set_sql_query("SELECT 1")
-        try:
-            stmt.execute_query()
-        except adbc_driver_manager.OperationalError:
-            # Mock server returns empty body on 200 — the driver may surface
-            # an Arrow-IPC parse error.  We only care about request capture.
-            pass
+        stmt.execute_query()
 
 
 def test_4xx_with_update_parameters_does_not_mutate_session(mock_server, conn_to_mock):
