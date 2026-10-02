@@ -13,7 +13,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(FIREBOLT_ADBC_BUILD_TESTS "Build unit tests" OFF)
 option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into firebolt_adbc" ON)
 option(FIREBOLT_ADBC_STRIP_DEP_DEBUG "Strip debug info from dependency artifacts" ON)
-option(WITH_SSL "Build curl with SSL support via BoringSSL" OFF)
+option(WITH_SSL "Build curl with SSL support via BoringSSL (what ships)" ON)
 
 # All non-system dependencies must live under adbc/submodule.
 set(ADBC_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodule" CACHE PATH
@@ -159,6 +159,11 @@ else ()
     unset(OPENSSL_CRYPTO_LIBRARY CACHE)
     unset(OPENSSL_USE_STATIC_LIBS CACHE)
 endif ()
+# No baked-in CA location: configure would record the *build machine's* bundle
+# path, which is wrong on hosts laid out differently.  DatabaseInit picks one at
+# run time instead (src/TlsConfig.h).
+set(CURL_CA_BUNDLE "none" CACHE STRING "No compiled-in CA bundle; chosen at run time" FORCE)
+set(CURL_CA_PATH "none" CACHE STRING "No compiled-in CA directory; chosen at run time" FORCE)
 set(HTTP_ONLY ON CACHE BOOL "Disable non-HTTP protocols in curl" FORCE)
 set(USE_NGHTTP2 OFF CACHE BOOL "Disable HTTP/2 in curl" FORCE)
 set(USE_NGTCP2 OFF CACHE BOOL "Disable HTTP/3 ngtcp2 in curl" FORCE)
@@ -260,6 +265,7 @@ add_library(firebolt_adbc SHARED
     src/IngestSqlBuilder.cpp
     src/QueryParameters.cpp
     src/DescribeParameters.cpp
+    src/TlsConfig.cpp
 )
 
 set_target_properties(firebolt_adbc PROPERTIES
@@ -336,11 +342,13 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
     add_executable(adbc_driver_tests
         tests/unit/adbc_driver_test.cpp
         tests/unit/session_state_test.cpp
+        tests/unit/tls_config_test.cpp
         src/ArrowIpcStream.cpp
         src/IngestSqlBuilder.cpp
         src/HttpHeaderParse.cpp
         src/QueryParameters.cpp
         src/DescribeParameters.cpp
+        src/TlsConfig.cpp
     )
 
     target_include_directories(adbc_driver_tests PRIVATE

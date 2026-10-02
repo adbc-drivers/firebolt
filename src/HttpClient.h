@@ -93,6 +93,7 @@ private:
 
     std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
     curl_slist * buildAuthHeader() const;
+    void applyTlsOptions() const;
     void parseResponseHeaders(HttpResponse & resp) const;
 
     static size_t writeBodyCallback(char * ptr, size_t size, size_t nmemb, void * userdata);

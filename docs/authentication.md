@@ -2,9 +2,8 @@
 
 Short version: this driver can talk to an engine with authentication **disabled**
 over plaintext HTTP, and it can send a bearer token you obtained elsewhere. It
-does not yet implement Firebolt's discovery-based authentication, and it cannot
-use TLS. If your engine requires authentication over HTTPS, this driver is not
-ready for it — the gaps are listed at the bottom.
+does not yet implement Firebolt's discovery-based authentication, so it cannot
+obtain a token itself. The gaps are listed at the bottom.
 
 ## What works today
 
@@ -48,11 +47,10 @@ The token can also be set per connection, so two connections sharing one
 
 Two caveats:
 
-- **The token travels in plaintext.** This build has no TLS, so a token sent to
-  anything other than a loopback address is exposed on the wire. Firebolt's SDK
+- **Use `https://` for a token.** Over a plaintext `http://` endpoint the token is
+  exposed on the wire to anything other than a loopback address. Firebolt's SDK
   specification forbids sending a token over an unencrypted transport for exactly
-  this reason. Treat token auth here as usable for local and trusted-network
-  testing, not production.
+  this reason. The driver does not enforce it yet.
 - **`adbc.firebolt.token` is temporary.** The specification has no
   connection-string field for a raw JWT; it comes from the environment instead.
   This option will be removed when the driver reads `FIREBOLT_TOKEN` itself.
@@ -124,8 +122,7 @@ Tracked separately; none of it is implemented here yet.
 
 | Gap | Consequence |
 |-----|-------------|
-| No TLS in the shipped build | `https://` is rejected at `Init`. Only plaintext `http://` endpoints are reachable. |
-| No `ssl_mode` / `ssl_certificate_path` | The driver behaves as a permanent `ssl_mode=disable`. |
+| No `ssl_mode` | TLS follows the `uri` scheme: `https://` always verifies the peer (`verify-full`), `http://` is plaintext. A token is not refused over `http://`. |
 | No `/.well-known/firebolt` discovery | The driver cannot tell whether an engine wants authentication; you have to know. |
 | No `client_credentials` grant | No `username` / `password`; you must obtain a token out of band. |
 | No `FIREBOLT_TOKEN` support | You have to read the variable yourself and pass `adbc.firebolt.token`. |

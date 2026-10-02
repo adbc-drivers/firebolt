@@ -80,6 +80,14 @@ curl_slist * HttpClient::buildAuthHeader() const
     return headers;
 }
 
+void HttpClient::applyTlsOptions() const
+{
+    // Peer and host verification are libcurl's defaults and stay on; this only
+    // says which CA bundle backs them.  Empty for http://.
+    if (!fb_conn_.db->ca_bundle_path.empty())
+        curl_easy_setopt(handle_, CURLOPT_CAINFO, fb_conn_.db->ca_bundle_path.c_str());
+}
+
 void HttpClient::parseResponseHeaders(HttpResponse & resp) const
 {
     resp.reset_session = shouldResetSession(handle_);
@@ -104,6 +112,7 @@ HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unorde
     curl_easy_setopt(handle_, CURLOPT_WRITEFUNCTION, writeBodyCallback);
     curl_easy_setopt(handle_, CURLOPT_WRITEDATA, &resp.body);
     curl_easy_setopt(handle_, CURLOPT_TIMEOUT, fb_conn_.db->timeout_sec);
+    applyTlsOptions();
 
     curl_slist * auth_headers = buildAuthHeader();
     // Content-Type: text/plain so the server knows body is raw SQL
@@ -138,6 +147,7 @@ HttpResponse HttpClient::executeInsert(
     curl_easy_setopt(handle_, CURLOPT_WRITEFUNCTION, writeBodyCallback);
     curl_easy_setopt(handle_, CURLOPT_WRITEDATA, &resp.body);
     curl_easy_setopt(handle_, CURLOPT_TIMEOUT, fb_conn_.db->timeout_sec);
+    applyTlsOptions();
 
     // Set auth header
     curl_slist * auth_headers = buildAuthHeader();

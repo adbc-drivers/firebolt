@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **TLS.** Released builds now link BoringSSL, so `https://` endpoints work. The peer is
+  always verified. The CA bundle is found at run time — `SSL_CERT_FILE`, then the
+  Debian, RHEL and SUSE locations — or named with the new
+  `adbc.firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
+  with a message naming every path tried.
+
 ## [0.1.1] - 2026-08-11
 
 ### Added

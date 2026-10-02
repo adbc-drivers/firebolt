@@ -25,9 +25,10 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 
 | Key | Required | Default | Meaning |
 |-----|----------|---------|---------|
-| `uri` | **yes** | — | The engine's HTTP endpoint, e.g. `http://localhost:3473`. Validated at `Init`: it must start with `http://` or `https://`, and `https://` is rejected outright by a build without TLS. Used verbatim, so a path is preserved (`http://host/query` stays `/query`) and query parameters are appended to whatever is already there. |
+| `uri` | **yes** | — | The engine's HTTP endpoint, e.g. `http://localhost:3473`. Validated at `Init`: it must start with `http://` or `https://` (`https://` needs a TLS build, which is what ships). Used verbatim, so a path is preserved (`http://host/query` stays `/query`) and query parameters are appended to whatever is already there. |
 | `adbc.firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
 | `adbc.firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
+| `adbc.firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
 | `adbc.firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
 
 Errors:
@@ -37,6 +38,8 @@ Errors:
 | `uri` missing at `Init` | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` has no scheme, or a scheme other than http/https | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` is `https://` on a build without TLS | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `adbc.firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `uri` is `https://` and no system CA bundle exists | `ADBC_STATUS_INVALID_STATE` |
 | `adbc.firebolt.timeout_sec` not a non-negative integer | `ADBC_STATUS_INVALID_ARGUMENT` |
 | unknown `adbc.firebolt.*` key | `ADBC_STATUS_NOT_FOUND` |
 
@@ -303,7 +306,8 @@ today's names are stable and which are already superseded.
 | — | `username` / `password` | OAuth `client_id` / `client_secret` for the `client_credentials` grant. Not implemented yet. |
 | — | `engine` | Engine selector, sent per request. Not implemented yet. |
 | — | `authorization_server` | Which discovered authorization server to use. Not implemented yet. |
-| — | `ssl_mode`, `ssl_certificate_path` | Transport security. Not implemented — this build is plaintext-only. |
+| `adbc.firebolt.ssl_certificate_path` | `ssl_certificate_path` | Rename only. |
+| — | `ssl_mode` | Not implemented: TLS follows the `uri` scheme and always verifies (`verify-full`). |
 | — | `use_token_cache`, `connection_timeout`, `max_retries`, `user_agent` | Not implemented yet. |
 
 When the migration lands, the current names are replaced rather than aliased.

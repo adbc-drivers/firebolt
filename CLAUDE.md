@@ -52,13 +52,14 @@ Private for now; it will be made public once it is ready.
 │   ├── QueryParameters.h/.cpp             # bound Arrow row → `query_parameters` JSON ($1, $2, …)
 │   ├── DescribeParameters.h/.cpp          # describe_parameters JSON → ADBC parameter schema
 │   ├── ScopeGuard.h                       # RAII exit guard
+│   ├── TlsConfig.h/.cpp                   # CA-bundle choice at DatabaseInit (option, SSL_CERT_FILE, distro paths)
 │   ├── Version.h.in                       # → build/generated/Version.h; FIREBOLT_ADBC_VERSION
 │   └── ArrowIpcStream.h/.cpp              # Arrow IPC bytes → ArrowArrayStream via nanoarrow 0.8.0
 │
 ├── scripts/                               # locally runnable, idempotent — also called from CI
 │   ├── build.sh                           # builds inside the pinned firebolt-adbc-builder Docker
 │   │                                      #   image (Ubuntu 22.04 + clang-18) for glibc portability;
-│   │                                      #   inits submodules, cmake + ninja, tests ON, SSL OFF
+│   │                                      #   inits submodules, cmake + ninja, tests ON, SSL ON
 │   ├── test-unit.sh                       # ctest --output-on-failure in build/
 │   └── test-integration.sh                # forwards args to tests/integration/runner.py
 │
@@ -85,6 +86,7 @@ Private for now; it will be made public once it is ready.
         │   └── requirements.txt           # adbc-driver-manager, pyarrow, pytest, requests
         ├── helpers/
         │   ├── __init__.py
+        │   ├── mock_firebolt_server.py    # in-process HTTP(S) mock; https:// generates a throwaway cert
         │   └── firebolt_engine.py         # minimal docker-compose 1-node Firebolt engine fixture
         └── tests/                         # one directory per test area
             ├── adbc_sanity/test.py        # connectivity, literal selects, arithmetic, strings
@@ -99,6 +101,7 @@ Private for now; it will be made public once it is ready.
             ├── prepared_statements/test.py # parameter schema; request budget via mock_server
             ├── query_params/test.py       # $N binding: types, values, executemany, param('name')
             ├── security_*/test.py         # regression tests for fixed security issues
+            ├── tls/test.py                # https:// via the TLS mock: CA option, strict verification
             └── struct_type/test.py        # STRUCT / ARRAY(STRUCT) retrieval and ingest
 ```
 
@@ -110,7 +113,7 @@ Builds inside the pinned `firebolt-adbc-builder:latest` image (Ubuntu 22.04 +
 clang-18), which it builds from `docker/builder/Dockerfile` on first use. The
 older glibc is the point: the resulting `.so` needs only glibc 2.34, so it loads
 on distributions older than the host. This is what CI and the release workflow
-use, and it passes `-DFIREBOLT_ADBC_BUILD_TESTS=ON -DWITH_SSL=OFF`.
+use, and it passes `-DFIREBOLT_ADBC_BUILD_TESTS=ON -DWITH_SSL=ON`.
 
 ```bash
 ./scripts/build.sh
@@ -244,6 +247,13 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 - **No exception may cross the C ABI** — the caller is a C driver manager with no handler,
   so anything that escapes aborts the host process. Every entry point that can throw
   wraps its body; `std::stol` and friends need explicit guards.
+- **The CA bundle is chosen at run time, never compiled in** — curl's configure step
+  records the build machine's bundle path, which names the Ubuntu builder image's layout
+  and is wrong on RHEL, Amazon Linux or SUSE. The build sets `CURL_CA_BUNDLE`/`CURL_CA_PATH`
+  to `none`, and `DatabaseInit` resolves one (`TlsConfig.cpp`):
+  `adbc.firebolt.ssl_certificate_path`, then `SSL_CERT_FILE`, then the standard distro
+  paths, handed to `CURLOPT_CAINFO`. A configured source that is unreadable is an error,
+  not a fall-through. Verification has no off switch.
 - **TLS capability is asked of libcurl, not tracked in a define** — `curl_version_info`
   reports whether the linked curl has SSL, so the `https://` rejection is always correct
   for the library actually loaded rather than for what the build flags claimed.
@@ -317,9 +327,10 @@ error status, and the full Arrow→Firebolt type mapping. Summary only here.
 
 | Key | Set on | Description |
 |-----|--------|-------------|
-| `"uri"` | Database | HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` requires a `-DWITH_SSL=ON` build, which is not what we ship. |
+| `"uri"` | Database | HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` verifies the peer against the CA bundle chosen at `Init`. |
 | `"adbc.firebolt.token"` | Database, Connection | Bearer token — omit for an auth-disabled engine. Per-connection when set on the connection. Contradicts the SDK auth spec (a raw JWT belongs in `FIREBOLT_TOKEN`) and will be removed; see `docs/authentication.md`. |
 | `"adbc.firebolt.database"` | Database | Database name (appended as `?database=…` query param) |
+| `"adbc.firebolt.ssl_certificate_path"` | Database | PEM CA bundle for `https://`; default is `SSL_CERT_FILE`, then the distro bundle paths |
 | `"adbc.firebolt.timeout_sec"` | Database | Total request timeout in whole seconds; `0` (the default) disables it |
 | `ADBC_CONNECTION_OPTION_AUTOCOMMIT` | Connection | `false` enables explicit transactions: lazy `BEGIN`, then `Commit`/`Rollback` |
 | `ADBC_INGEST_OPTION_TARGET_TABLE` | Statement | Target table for the bind-data ingest path; auto-generates `INSERT INTO {target} ({cols}) SELECT * FROM read_arrow('upload://data.arrow')` on `ExecuteUpdate` |
@@ -368,7 +379,7 @@ and the RFC 8707 `resource` bound to the instance. Token precedence is `FIREBOLT
 Transport is a separate `ssl_mode` parameter defaulting to `verify-full`.
 
 This driver implements **none** of that yet: no discovery, no `client_credentials`, no
-`FIREBOLT_TOKEN`, no `ssl_mode`, no TLS in the shipped build, and canonical parameter
+`FIREBOLT_TOKEN`, no `ssl_mode` (TLS ships, always `verify-full`), and canonical parameter
 names (`host`, `database`, `query_timeout`, … per
 `specs/schemas/connection-parameters.v1.json`) not yet adopted. `docs/authentication.md`
 documents the gap for users; the rename, when it happens, replaces the current

@@ -37,7 +37,7 @@ docker run --rm \
       -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
       -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
       -DCMAKE_LINKER=/usr/bin/ld.lld-18 \
-      -DWITH_SSL=OFF \
+      -DWITH_SSL=ON \
       -DFIREBOLT_ADBC_BUILD_TESTS=ON \
       -G Ninja -S . -B build
     cmake --build build -j"$(nproc)"

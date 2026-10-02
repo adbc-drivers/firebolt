@@ -16,14 +16,15 @@ Read this before you build anything on it.
 
 | | |
 |---|---|
-| **Transport** | Plaintext `http://` **only**. This build has no TLS: an `https://` endpoint is rejected when you open the database. |
+| **Transport** | `http://` and `https://`. TLS verifies the peer against the system CA bundle, found at run time; `adbc.firebolt.ssl_certificate_path` names another. There is no way to switch verification off. |
 | **Authentication** | Engines with authentication **disabled**, plus an optional bearer token you obtained elsewhere. Firebolt's discovery-based OAuth flow is **not** implemented. See [docs/authentication.md](docs/authentication.md). |
 | **Platforms** | Linux x86_64 and aarch64, glibc 2.34 or newer. No macOS or Windows build. |
 | **ADBC** | The full ADBC 1.0.0 function set. Reports itself as 1.1.0, but the 1.1.0-only entry points are not implemented — see [Feature & Type Support](#feature--type-support). |
 
 In practice that means this driver is ready for local development, CI, and
 trusted-network deployments where the engine does not require authentication. It
-is not ready to reach an engine that requires authentication over TLS.
+cannot yet obtain a token itself, so an engine that requires authentication needs a
+token you acquired elsewhere.
 
 ## Quickstart
 
@@ -233,7 +234,7 @@ Driver-level capabilities the shared table does not cover.
 | Query parameter binding (`execute(sql, params)`) | ✅ `$1`, `$2`, … <sup>[4](#fn4)</sup> |
 | Named parameter binding (`execute(sql, {...})`) | ✅ via `param('name')` <sup>[17](#fn17)</sup> |
 | `rowcount` on DML | ❌ always `-1` <sup>[6](#fn6)</sup> |
-| TLS / `https://` endpoints | ❌ not in this build |
+| TLS / `https://` endpoints | ✅ verified against the system CA bundle |
 | Discovery-based authentication | ❌ see [docs/authentication.md](docs/authentication.md) |
 | Partitioned execution, Substrait plans | ❌ |
 | ADBC 1.1.0-only entry points <sup>[7](#fn7)</sup> | ❌ |
@@ -399,7 +400,9 @@ today's names to the canonical ones is in
 |---------|---------------|
 | `Database 'uri' option is required` | No `uri` in `db_kwargs`. |
 | `Database 'uri' must start with http:// or https://` | You passed a bare host (`localhost:3473`) or a `firebolt://` URI. This driver takes the engine's HTTP endpoint. |
-| `... is https:// but this driver was built without TLS support` | Expected — see [Supported today](#supported-today). Use an `http://` endpoint, or build with `-DWITH_SSL=ON`. |
+| `... is https:// but this driver was built without TLS support` | A self-built driver configured with `-DWITH_SSL=OFF`. Released builds have TLS; rebuild with the default `WITH_SSL=ON`. |
+| `No CA certificate bundle found for https://` | The host has no system CA certificates (common in minimal containers). Install them (`ca-certificates` on Debian/Ubuntu/RHEL), or set `adbc.firebolt.ssl_certificate_path` to a PEM bundle. |
+| `IO: curl error: SSL peer certificate or SSH remote key was not OK` | The server's certificate does not chain to a trusted CA, or its name does not match the `uri` host. For a private CA, point `adbc.firebolt.ssl_certificate_path` at its PEM file. |
 | `IO: curl error: Couldn't connect to server` | Nothing is listening. Check the container is up and the port matches: `curl -fsS http://localhost:3473/ping`. |
 | `Cluster not yet healthy` | The engine answers `/ping` before it can serve queries. Retry `SELECT 1` for a few seconds. |
 | `UNAUTHORIZED: HTTP 401` / `403` | The engine wants authentication. Supply `adbc.firebolt.token`; see [docs/authentication.md](docs/authentication.md). |

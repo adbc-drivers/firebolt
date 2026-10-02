@@ -18,7 +18,12 @@ Usage from a test:
 
 import dataclasses
 import http.server
+import os
+import shutil
 import socket
+import ssl
+import subprocess
+import tempfile
 import threading
 from collections import deque
 from typing import Iterable
@@ -48,7 +53,13 @@ class MockFireboltServer:
     micromanaging every request.
     """
 
-    def __init__(self):
+    def __init__(self, tls: bool = False):
+        self.tls = tls
+        # With tls=True: a self-signed certificate for 127.0.0.1 / localhost,
+        # generated for this server alone and deleted by stop(), so no key is ever
+        # committed.  Clients trust it only when pointed at `tls_cert`.
+        self.tls_cert = None
+        self._tls_dir = None
         self._lock = threading.Lock()
         self._queued: deque[_QueuedResponse] = deque()
         self._captured: list[CapturedRequest] = []
@@ -96,12 +107,20 @@ class MockFireboltServer:
 
         # Bind to port 0 to let the kernel pick a free port.
         self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        if tls:
+            self._tls_dir = tempfile.mkdtemp(prefix="mock-firebolt-tls-")
+            self.tls_cert = os.path.join(self._tls_dir, "cert.pem")
+            key = os.path.join(self._tls_dir, "key.pem")
+            _generate_self_signed_certificate(self.tls_cert, key)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(self.tls_cert, key)
+            self._server.socket = context.wrap_socket(self._server.socket, server_side=True)
         self.host, self.port = self._server.server_address
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
     def url(self) -> str:
-        return f"http://{self.host}:{self.port}"
+        return f"{'https' if self.tls else 'http'}://{self.host}:{self.port}"
 
     def start(self):
         self._thread.start()
@@ -110,6 +129,8 @@ class MockFireboltServer:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2.0)
+        if self._tls_dir:
+            shutil.rmtree(self._tls_dir, ignore_errors=True)
 
     # ----- test-side controls -----------------------------------------------
 
@@ -133,6 +154,21 @@ class MockFireboltServer:
     def last_request(self) -> CapturedRequest | None:
         with self._lock:
             return self._captured[-1] if self._captured else None
+
+
+def _generate_self_signed_certificate(cert_path: str, key_path: str) -> None:
+    """A one-day P-256 certificate for 127.0.0.1 and localhost, via the openssl CLI."""
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-nodes", "-days", "1",
+            "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+            "-subj", "/CN=firebolt-adbc-test",
+            "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost",
+            "-keyout", key_path, "-out", cert_path,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def find_free_port() -> int:

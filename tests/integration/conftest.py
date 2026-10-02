@@ -137,6 +137,17 @@ def mock_server():
 
 
 @pytest.fixture
+def tls_mock_server():
+    """mock_server over https://, with a certificate generated for it (`tls_cert`)."""
+    server = MockFireboltServer(tls=True)
+    server.start()
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture
 def conn_to_mock(mock_server):
     """An AdbcConnection pointed at the mock server instead of a real engine."""
     assert os.path.isfile(ADBC_DRIVER_PATH), f"ADBC driver not found at {ADBC_DRIVER_PATH}"

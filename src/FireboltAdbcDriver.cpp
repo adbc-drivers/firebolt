@@ -8,6 +8,7 @@
 #include "IngestSqlBuilder.h"
 #include "QueryParameters.h"
 #include "ScopeGuard.h"
+#include "TlsConfig.h"
 #include "adbc.h"
 
 #include <nanoarrow/nanoarrow.hpp>
@@ -267,6 +268,8 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
         fdb->token = v;
     else if (k == "adbc.firebolt.database")
         fdb->database = v;
+    else if (k == "adbc.firebolt.ssl_certificate_path")
+        fdb->ssl_certificate_path = v;
     else if (k == "adbc.firebolt.timeout_sec")
     {
         // std::stol throws on non-numeric and out-of-range input.  Letting that
@@ -340,6 +343,17 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
             ADBC_STATUS_INVALID_ARGUMENT,
             "Database 'uri' is https:// but this driver was built without TLS support, so it can only reach plaintext http:// "
             "endpoints. Use an http:// endpoint, or rebuild the driver with -DWITH_SSL=ON.");
+
+    // Pick the CA bundle now: the build disables curl's baked-in path, which
+    // names the builder image's layout rather than this host's.  A configured
+    // bundle is checked even for http://, so a typo is caught either way.
+    if (is_https || !fdb->ssl_certificate_path.empty())
+    {
+        CaBundleResult ca = resolveCaBundle(fdb->ssl_certificate_path);
+        if (!ca.error.empty())
+            return SetError(error, ca.configuration_error ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_INVALID_STATE, ca.error);
+        fdb->ca_bundle_path = ca.path;
+    }
 
     initCurl();
     fdb->initialized = true;

@@ -412,6 +412,27 @@ TEST(DatabaseInitTest, HttpsUriRejectedWhenCurlHasNoTls)
         error.release(&error);
 }
 
+TEST(DatabaseInitTest, MissingSslCertificatePathRejectedAtInit)
+{
+    // A CA bundle the caller named but that does not exist would otherwise
+    // surface on the first query as an opaque certificate failure.
+    AdbcDriver driver = InitDriver();
+    AdbcError error = ADBC_ERROR_INIT;
+    AdbcDatabase db{};
+    ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "https://api.example.com", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.ssl_certificate_path", "/no/such/ca.pem", &error), ADBC_STATUS_OK);
+    AdbcStatusCode code = driver.DatabaseInit(&db, &error);
+    driver.DatabaseRelease(&db, nullptr);
+    EXPECT_EQ(code, ADBC_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.message, nullptr);
+    // Without TLS the https:// rejection comes first; either way the caller is told why.
+    if (CurlHasTls())
+        EXPECT_NE(std::string(error.message).find("/no/such/ca.pem"), std::string::npos) << error.message;
+    if (error.release)
+        error.release(&error);
+}
+
 // ============================================================
 // Tests: connection lifecycle
 // ============================================================
