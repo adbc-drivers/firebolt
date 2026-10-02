@@ -7,12 +7,15 @@ A standalone C++ shared library (`libfirebolt_adbc.so`) implementing the
 interface. Client-side only — loaded at runtime by ADBC driver managers (Python
 `adbc_driver_manager`, R `adbcdrivermanager`, etc.).
 
-This repository (`firebolt-db/firebolt-adbc`) is the driver and nothing else: a
-**completely independent CMake project** with no coupling to the packdb build
-system. It was extracted from `adbc/` in the packdb repo — paths in this document
-are relative to *this* repository's root, not to packdb.
+This repository ([`adbc-drivers/firebolt`](https://github.com/adbc-drivers/firebolt),
+formerly `firebolt-db/firebolt-adbc`, whose URLs still redirect) is the driver and
+nothing else: a **completely independent CMake project** with no coupling to the
+packdb build system. It was extracted from `adbc/` in the packdb repo — paths in
+this document are relative to *this* repository's root, not to packdb.
 
-Private for now; it will be made public once it is ready.
+The repository is **public**: everything committed — code, tests, docs, commit
+messages and PR text — is visible to anyone. Never commit secrets, credentials or
+private keys, including test material: generate test certificates at run time.
 
 ## Directory layout
 
