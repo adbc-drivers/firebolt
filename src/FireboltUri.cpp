@@ -18,7 +18,7 @@
 
 #include <cstring>
 #include <memory>
-#include <new>
+#include <optional>
 #include <string>
 #include <utility>
 #include <strings.h>
@@ -43,23 +43,14 @@ namespace
 
     using CurlString = std::unique_ptr<char, CurlFree>;
 
-    // One component of a parsed URL, still percent-encoded; empty when absent.
-    std::string urlPart(CURLU * url, CURLUPart part)
+    // One component of a parsed URL, or nullopt when it is absent or, with
+    // CURLU_URLDECODE, does not decode.
+    std::optional<std::string> urlPart(CURLU * url, CURLUPart part, unsigned int flags = 0)
     {
         char * value = nullptr;
-        if (curl_url_get(url, part, &value, 0) != CURLUE_OK)
-            return {};
-        return CurlString(value).get();
-    }
-
-    // A '%' that does not start a valid escape is kept as it is.
-    std::string percentDecode(const std::string & text)
-    {
-        int length = 0;
-        CurlString decoded(curl_easy_unescape(nullptr, text.c_str(), static_cast<int>(text.size()), &length));
-        if (!decoded)
-            throw std::bad_alloc();
-        return std::string(decoded.get(), static_cast<size_t>(length));
+        if (curl_url_get(url, part, &value, flags) != CURLUE_OK)
+            return std::nullopt;
+        return std::string(CurlString(value).get());
     }
 
 } // namespace
@@ -95,7 +86,7 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
 
     const std::unique_ptr<CURLU, CurlUrlCleanup> url(curl_url());
     if (!url)
-        throw std::bad_alloc();
+        return FireboltUriError{ADBC_STATUS_INTERNAL, "Out of memory parsing database 'uri'"};
     const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
     if (rc != CURLUE_OK)
     {
@@ -103,20 +94,26 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
             ADBC_STATUS_INVALID_ARGUMENT,
             std::string("Database 'uri' is not a valid firebolt:// URI (") + curl_url_strerror(rc) + "); got '" + uri + "'"};
     }
-    const std::string port = urlPart(url.get(), CURLUPART_PORT);
-    const std::string authority = urlPart(url.get(), CURLUPART_HOST) + (port.empty() ? "" : ":" + port);
+    const std::optional<std::string> port = urlPart(url.get(), CURLUPART_PORT);
+    const std::string authority = urlPart(url.get(), CURLUPART_HOST).value_or("") + (port ? ":" + *port : "");
 
     // The path names the database: one segment, possibly empty.  Slashes are
     // checked before decoding, so %2F can still put one in a database name.
-    const std::string path = urlPart(url.get(), CURLUPART_PATH);
-    const std::string segment = path.empty() ? path : path.substr(1);
+    const std::string segment = urlPart(url.get(), CURLUPART_PATH).value_or("/").substr(1);
     if (segment.find('/') != std::string::npos)
     {
         return FireboltUriError{ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' path must be a single database name; got '" + segment + "'"};
     }
-    std::string database = percentDecode(segment);
+    const std::optional<std::string> decoded_path = urlPart(url.get(), CURLUPART_PATH, CURLU_URLDECODE);
+    if (!decoded_path)
+    {
+        return FireboltUriError{
+            ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' has a database name that does not decode; got '" + segment + "'"};
+    }
+    std::string database = decoded_path->substr(1);
 
-    const std::string query = urlPart(url.get(), CURLUPART_QUERY);
+    // Query keys and values are fixed ASCII words, so they are compared as written.
+    const std::string query = urlPart(url.get(), CURLUPART_QUERY).value_or("");
     std::string ssl_mode = "verify-full";
     size_t pos = 0;
     while (pos < query.size())
@@ -129,8 +126,8 @@ std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(con
         if (pair.empty())
             continue;
         const size_t eq = pair.find('=');
-        const std::string key = percentDecode(pair.substr(0, eq));
-        const std::string value = eq == std::string::npos ? "" : percentDecode(pair.substr(eq + 1));
+        const std::string key = pair.substr(0, eq);
+        const std::string value = eq == std::string::npos ? "" : pair.substr(eq + 1);
         if (key != "ssl_mode")
         {
             return FireboltUriError{

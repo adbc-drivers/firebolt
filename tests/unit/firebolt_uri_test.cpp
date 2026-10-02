@@ -138,6 +138,14 @@ TEST(FireboltUriTest, MalformedPercentEscapeKeptLiterally)
     EXPECT_EQ(p.uri.database, "db%2");
 }
 
+TEST(FireboltUriTest, UndecodableDatabaseRejected)
+{
+    // An encoded NUL cannot be part of a database name; it must not be cut short
+    // or carried through into the request.
+    auto p = parse("firebolt://localhost/db%00x");
+    EXPECT_EQ(p.code, ADBC_STATUS_INVALID_ARGUMENT) << p.message;
+}
+
 TEST(FireboltUriTest, InvalidPortRejected)
 {
     for (const char * uri : {"firebolt://localhost:abc/db", "firebolt://localhost:99999/db"})
