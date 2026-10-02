@@ -20,6 +20,10 @@ generic `AdbcDriverInit` stays as the fallback. Neither needs a running engine:
 opening a database and a connection sends no request.
 """
 
+import ctypes
+import os.path
+import re
+
 import adbc_driver_manager
 import pytest
 
@@ -40,3 +44,21 @@ def test_non_adbc_entrypoint_is_not_exported(mock_server):
         adbc_driver_manager.AdbcDatabase(
             driver=ADBC_DRIVER_PATH, entrypoint="FireboltAdbcDriverInit", uri=mock_server.url
         )
+
+
+def _derived_entrypoint(path: str) -> str:
+    """The symbol a driver manager tries first when no entrypoint is given:
+    the file name without extensions and `lib`, split on `_`/`-`, capitalised
+    and joined, `Adbc`-prefixed, plus `Init` (adbc_driver_manager.cc,
+    InternalAdbcDriverManagerDefaultEntrypoint)."""
+    stem = os.path.basename(path).split(".", 1)[0]
+    stem = stem[3:] if stem.startswith("lib") else stem
+    name = "".join(t[:1].upper() + t[1:] for t in re.split(r"[-_]", stem))
+    return (name if name.startswith("Adbc") else "Adbc" + name) + "Init"
+
+
+def test_file_name_derives_the_exported_entrypoint():
+    # Without this, a manager silently falls back to AdbcDriverInit.
+    assert os.path.basename(ADBC_DRIVER_PATH) == "libadbc_driver_firebolt.so"
+    assert _derived_entrypoint(ADBC_DRIVER_PATH) == "AdbcDriverFireboltInit"
+    assert hasattr(ctypes.CDLL(ADBC_DRIVER_PATH), "AdbcDriverFireboltInit")

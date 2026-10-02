@@ -15,7 +15,7 @@
 
 """Minimal integration test runner for firebolt-adbc.
 
-Runs pytest inside the firebolt-adbc-integration-test-runner image with libfirebolt_adbc.so
+Runs pytest inside the firebolt-adbc-integration-test-runner image with libadbc_driver_firebolt.so
 bind-mounted in. The test itself spins up a 1-node Firebolt engine via docker compose
 from inside the runner container.
 
@@ -47,7 +47,7 @@ DEFAULT_ENGINE_IMAGE = "ghcr.io/firebolt-db/engine:latest"
 CUR_DIR = p.dirname(p.realpath(__file__))                        # adbc/tests/integration
 DOCKERFILE_DIR = p.join(CUR_DIR, "docker")                       # adbc/tests/integration/docker
 REPO_ROOT = p.abspath(p.join(CUR_DIR, "..", ".."))               # adbc
-DEFAULT_ADBC_BINARY = p.join(REPO_ROOT, "build", "libfirebolt_adbc.so")
+DEFAULT_ADBC_BINARY = p.join(REPO_ROOT, "build", "libadbc_driver_firebolt.so")
 
 _current_container: str | None = None
 _current_network: str | None = None
@@ -155,7 +155,7 @@ def _launch_runner(
     adbc_so = p.abspath(adbc_binary)
     if not p.isfile(adbc_so):
         raise SystemExit(
-            f"libfirebolt_adbc.so not found at {adbc_so}. Build it first:\n"
+            f"libadbc_driver_firebolt.so not found at {adbc_so}. Build it first:\n"
             "  cmake --preset standalone-clang -S .\n"
             "  cmake --build build -j$(nproc)\n"
             "or pass --adbc-binary=<path>."
@@ -209,7 +209,7 @@ def main():
     )
     parser.add_argument(
         "--adbc-binary", default=DEFAULT_ADBC_BINARY,
-        help=f"Path to libfirebolt_adbc.so (default: {DEFAULT_ADBC_BINARY})",
+        help=f"Path to libadbc_driver_firebolt.so (default: {DEFAULT_ADBC_BINARY})",
     )
     args, pytest_args = parser.parse_known_args()
 

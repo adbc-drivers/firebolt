@@ -43,7 +43,7 @@ All examples read the same environment variables:
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `FIREBOLT_ADBC_DRIVER` | `../../build/libfirebolt_adbc.so` | Path to the driver `.so`. Point this at your download. |
+| `FIREBOLT_ADBC_DRIVER` | `../../build/libadbc_driver_firebolt.so` | Path to the driver `.so`. Point this at your download. |
 | `FIREBOLT_URI` | `http://localhost:3473` | Engine HTTP endpoint. Must be `http://` — this build has no TLS. |
 | `FIREBOLT_DATABASE` | *(server default)* | Database name, if you need a specific one. |
 | `FIREBOLT_TOKEN` | *(unset)* | Bearer token, only for an engine that requires one. |
@@ -57,7 +57,7 @@ python examples/python/quickstart.py
 Against a downloaded driver:
 
 ```bash
-export FIREBOLT_ADBC_DRIVER=$PWD/libfirebolt_adbc-x86_64.so
+export FIREBOLT_ADBC_DRIVER=$PWD/libadbc_driver_firebolt.so
 python examples/python/quickstart.py
 ```
 

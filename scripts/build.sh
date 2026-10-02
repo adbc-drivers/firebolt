@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Configure + build libfirebolt_adbc.so and the unit-test executable inside
+# Configure + build libadbc_driver_firebolt.so and the unit-test executable inside
 # the pinned firebolt-adbc-builder Docker image (Ubuntu 22.04 + clang-18).  The
 # 22.04 glibc gives the resulting .so broader runtime compatibility.
 #

@@ -18,14 +18,14 @@ cmake_minimum_required(VERSION 3.20)
 # This is the single source of truth: it feeds the shared library soname and
 # the ADBC_INFO_DRIVER_VERSION string via src/Version.h.in.  Bump it in the
 # same commit as the release tag.
-project(firebolt_adbc VERSION 0.1.1 LANGUAGES C CXX)
+project(adbc_driver_firebolt VERSION 0.1.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(FIREBOLT_ADBC_BUILD_TESTS "Build unit tests" OFF)
-option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into firebolt_adbc" ON)
+option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into adbc_driver_firebolt" ON)
 option(FIREBOLT_ADBC_STRIP_DEP_DEBUG "Strip debug info from dependency artifacts" ON)
 option(WITH_SSL "Build curl with SSL support via BoringSSL (what ships)" ON)
 
@@ -35,17 +35,17 @@ set(ADBC_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodule" CACHE PATH
 
 function(require_dir path description)
     if (NOT IS_DIRECTORY "${path}")
-        message(FATAL_ERROR "firebolt_adbc: missing ${description}: ${path}")
+        message(FATAL_ERROR "adbc_driver_firebolt: missing ${description}: ${path}")
     endif ()
 endfunction()
 
 function(require_static_target target_name)
     if (NOT TARGET "${target_name}")
-        message(FATAL_ERROR "firebolt_adbc: required target not found: ${target_name}")
+        message(FATAL_ERROR "adbc_driver_firebolt: required target not found: ${target_name}")
     endif ()
     get_target_property(_target_type "${target_name}" TYPE)
     if (NOT _target_type STREQUAL "STATIC_LIBRARY")
-        message(FATAL_ERROR "firebolt_adbc: target ${target_name} must be static, got ${_target_type}")
+        message(FATAL_ERROR "adbc_driver_firebolt: target ${target_name} must be static, got ${_target_type}")
     endif ()
 endfunction()
 
@@ -72,7 +72,7 @@ endif ()
 
 # Binary size.  Every function and data object gets its own section, here and in
 # every dependency added below, so the link can drop what nothing reaches
-# (--gc-sections on firebolt_adbc).  The version script exports two symbols, so
+# (--gc-sections on adbc_driver_firebolt).  The version script exports two symbols, so
 # most of BoringSSL, curl and libstdc++ is unreachable.  No effect on speed.
 add_compile_options(-ffunction-sections -fdata-sections)
 
@@ -86,7 +86,7 @@ if (WITH_SSL)
     set(OPENSSL_SMALL ON CACHE BOOL "Smaller BoringSSL: fewer precomputed tables" FORCE)
     add_subdirectory("${_boringssl_src}" "${_boringssl_build}")
     if (NOT TARGET ssl OR NOT TARGET crypto)
-        message(FATAL_ERROR "firebolt_adbc: BoringSSL ssl/crypto static targets were not generated")
+        message(FATAL_ERROR "adbc_driver_firebolt: BoringSSL ssl/crypto static targets were not generated")
     endif ()
     require_static_target(ssl)
     require_static_target(crypto)
@@ -153,7 +153,7 @@ elseif (TARGET c-ares_static)
 elseif (TARGET c-ares::cares)
     set(_cares_target c-ares::cares)
 else ()
-    message(FATAL_ERROR "firebolt_adbc: c-ares static target not found")
+    message(FATAL_ERROR "adbc_driver_firebolt: c-ares static target not found")
 endif ()
 require_static_target(${_cares_target})
 if (FIREBOLT_ADBC_STRIP_DEP_DEBUG AND TARGET c-ares_static)
@@ -207,7 +207,7 @@ set(CURL_DROP_UNUSED ON CACHE BOOL "Drop unused curl code and data" FORCE)
 foreach (_curl_unused
          HTTP_AUTH NTLM KERBEROS_AUTH NEGOTIATE_AUTH DIGEST_AUTH BASIC_AUTH BEARER_AUTH AWS
          HSTS ALTSVC NETRC FORM_API GETOPTIONS)
-    set(CURL_DISABLE_${_curl_unused} ON CACHE BOOL "Not used by firebolt_adbc" FORCE)
+    set(CURL_DISABLE_${_curl_unused} ON CACHE BOOL "Not used by adbc_driver_firebolt" FORCE)
 endforeach ()
 
 # curl's FindCares.cmake consumes these hints when ENABLE_ARES=ON.
@@ -224,7 +224,7 @@ elseif (TARGET libcurl_static)
 elseif (TARGET CURL::libcurl)
     set(_curl_target CURL::libcurl)
 else ()
-    message(FATAL_ERROR "firebolt_adbc: curl static target not found")
+    message(FATAL_ERROR "adbc_driver_firebolt: curl static target not found")
 endif ()
 require_static_target(${_curl_target})
 if (CMAKE_C_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
@@ -257,7 +257,7 @@ if (TARGET nanoarrow_static)
 elseif (TARGET nanoarrow)
     set(_nanoarrow_target nanoarrow)
 else ()
-    message(FATAL_ERROR "firebolt_adbc: neither nanoarrow_static nor nanoarrow target exists")
+    message(FATAL_ERROR "adbc_driver_firebolt: neither nanoarrow_static nor nanoarrow target exists")
 endif ()
 
 if (TARGET nanoarrow_ipc_static)
@@ -265,7 +265,7 @@ if (TARGET nanoarrow_ipc_static)
 elseif (TARGET nanoarrow_ipc)
     set(_nanoarrow_ipc_target nanoarrow_ipc)
 else ()
-    message(FATAL_ERROR "firebolt_adbc: neither nanoarrow_ipc_static nor nanoarrow_ipc target exists")
+    message(FATAL_ERROR "adbc_driver_firebolt: neither nanoarrow_ipc_static nor nanoarrow_ipc target exists")
 endif ()
 
 require_static_target(${_nanoarrow_target})
@@ -288,7 +288,7 @@ configure_file(
     @ONLY
 )
 
-add_library(firebolt_adbc SHARED
+add_library(adbc_driver_firebolt SHARED
     src/FireboltAdbcDriver.cpp
     src/FireboltAdbcMetadata.cpp
     src/HttpClient.cpp
@@ -300,23 +300,23 @@ add_library(firebolt_adbc SHARED
     src/TlsConfig.cpp
 )
 
-set_target_properties(firebolt_adbc PROPERTIES
+set_target_properties(adbc_driver_firebolt PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
-target_include_directories(firebolt_adbc PRIVATE
+target_include_directories(adbc_driver_firebolt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 # SYSTEM so nlohmann/json's own headers are exempt from this project's warnings.
-target_include_directories(firebolt_adbc SYSTEM PRIVATE ${_json_include})
+target_include_directories(adbc_driver_firebolt SYSTEM PRIVATE ${_json_include})
 
-target_link_libraries(firebolt_adbc PRIVATE
+target_link_libraries(adbc_driver_firebolt PRIVATE
     ${_curl_target}
     ${_nanoarrow_target}
     ${_nanoarrow_ipc_target}
@@ -325,7 +325,7 @@ target_link_libraries(firebolt_adbc PRIVATE
     z
 )
 if (WITH_SSL)
-    target_link_libraries(firebolt_adbc PRIVATE
+    target_link_libraries(adbc_driver_firebolt PRIVATE
         adbc_ssl
         adbc_crypto
     )
@@ -334,11 +334,11 @@ endif ()
 if (UNIX AND NOT APPLE)
     if (FIREBOLT_ADBC_STATIC_LIBSTDCXX)
         # Remove dynamic dependency on libstdc++.so/libgcc_s.so where supported.
-        target_link_options(firebolt_adbc PRIVATE -static-libstdc++ -static-libgcc)
+        target_link_options(adbc_driver_firebolt PRIVATE -static-libstdc++ -static-libgcc)
     endif ()
 
-    target_link_options(firebolt_adbc PRIVATE
-        -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/firebolt_adbc.version
+    target_link_options(adbc_driver_firebolt PRIVATE
+        -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/adbc_driver_firebolt.version
         -Wl,--as-needed
         -Wl,--gc-sections
     )
@@ -349,15 +349,15 @@ if (UNIX AND NOT APPLE)
     include(CheckLinkerFlag)
     check_linker_flag(CXX "-fuse-ld=lld" FIREBOLT_ADBC_HAVE_LLD)
     if (FIREBOLT_ADBC_HAVE_LLD)
-        target_link_options(firebolt_adbc PRIVATE -fuse-ld=lld -Wl,--icf=all)
+        target_link_options(adbc_driver_firebolt PRIVATE -fuse-ld=lld -Wl,--icf=all)
     else ()
-        message(STATUS "firebolt_adbc: lld not available; linking without identical code folding")
+        message(STATUS "adbc_driver_firebolt: lld not available; linking without identical code folding")
     endif ()
 
     # Print dynamic dependencies after build:
-    add_custom_command(TARGET firebolt_adbc POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "$<TARGET_FILE:firebolt_adbc> .so dependencies:"
-        COMMAND /usr/bin/env bash -c "readelf -d \"$<TARGET_FILE:firebolt_adbc>\" 2>/dev/null | awk '/\\(NEEDED\\)/ { gsub(/\\[/, \"\", $5); gsub(/\\]/, \"\", $5); print $5 }' || true"
+    add_custom_command(TARGET adbc_driver_firebolt POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "$<TARGET_FILE:adbc_driver_firebolt> .so dependencies:"
+        COMMAND /usr/bin/env bash -c "readelf -d \"$<TARGET_FILE:adbc_driver_firebolt>\" 2>/dev/null | awk '/\\(NEEDED\\)/ { gsub(/\\[/, \"\", $5); gsub(/\\]/, \"\", $5); print $5 }' || true"
         VERBATIM
     )
 endif ()
@@ -373,7 +373,7 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
     elseif (TARGET gtest_main)
         set(_gtest_main_target gtest_main)
     else ()
-        message(FATAL_ERROR "firebolt_adbc: gtest_main target not found in googletest submodule")
+        message(FATAL_ERROR "adbc_driver_firebolt: gtest_main target not found in googletest submodule")
     endif ()
 
     if (TARGET gtest)
@@ -404,7 +404,7 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
 
     target_link_libraries(adbc_driver_tests PRIVATE
         ${_gtest_main_target}
-        firebolt_adbc
+        adbc_driver_firebolt
         ${_nanoarrow_target}
         ${_nanoarrow_ipc_target}
         ${_curl_target}
@@ -415,5 +415,5 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
     add_test(NAME adbc_driver_tests COMMAND adbc_driver_tests)
 endif ()
 
-install(TARGETS firebolt_adbc LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
-install(FILES adbc.h DESTINATION include/firebolt_adbc)
+install(TARGETS adbc_driver_firebolt LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+install(FILES adbc.h DESTINATION include/adbc_driver_firebolt)

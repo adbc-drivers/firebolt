@@ -14,7 +14,7 @@
 
 // Generated from src/Version.h.in by CMake — do not edit.
 //
-// Single source of truth for the driver version: `project(firebolt_adbc
+// Single source of truth for the driver version: `project(adbc_driver_firebolt
 // VERSION ...)` in CMakeLists.txt.  The same value feeds the shared library's
 // VERSION/SOVERSION and the ADBC_INFO_DRIVER_VERSION string returned by
 // ConnectionGetInfo, so a release tag, the .so soname, and what the driver

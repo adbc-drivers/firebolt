@@ -26,7 +26,7 @@ import os
 from adbc_driver_manager import dbapi
 
 DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libfirebolt_adbc.so"
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libadbc_driver_firebolt.so"
 )
 
 

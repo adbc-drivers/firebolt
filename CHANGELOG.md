@@ -39,6 +39,10 @@ All notable changes to this project are documented here. The format follows
   manager derives from the driver name. `FireboltAdbcDriverInit` is no longer exported
   (only `Adbc*` symbols are); a manifest with `entrypoint = "FireboltAdbcDriverInit"`
   must switch to the new name or drop the line — `AdbcDriverInit` still works.
+- **The library is `libadbc_driver_firebolt.so`** (was `libfirebolt_adbc.so`), the
+  Foundry file name from which a driver manager derives `AdbcDriverFireboltInit`. Releases
+  ship one `adbc_driver_firebolt-linux-<arch>.tar.gz` per architecture holding the
+  library, `LICENSE.txt` and `NOTICE.txt`, instead of a renamed `.so` per architecture.
 
 ## [0.1.1] - 2026-08-11
 

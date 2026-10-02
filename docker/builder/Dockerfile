@@ -14,7 +14,7 @@
 
 # firebolt-adbc-builder
 #
-# Build environment for libfirebolt_adbc.so.  Ubuntu 22.04 is pinned so the
+# Build environment for libadbc_driver_firebolt.so.  Ubuntu 22.04 is pinned so the
 # resulting binary links against the older glibc (2.35) shipped with jammy and
 # remains forward-compatible with newer host systems.
 FROM ubuntu:22.04

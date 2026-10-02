@@ -28,7 +28,7 @@ The three scripts under `scripts/` are the canonical entry points. CI runs the
 same commands, so a green local run means a green CI run.
 
 ```bash
-./scripts/build.sh              # → build/libfirebolt_adbc.so (+ unit test binary)
+./scripts/build.sh              # → build/libadbc_driver_firebolt.so (+ unit test binary)
 ./scripts/test-unit.sh          # C++ unit tests via ctest, no server needed
 ./scripts/test-integration.sh   # pytest against a throwaway 1-node engine
 ```
@@ -96,7 +96,7 @@ Delete `build/` and re-run.
 - **No packdb internal headers.** The `.so` has to load outside the server
   process.
 - **Only `AdbcDriverInit` and `AdbcDriverFireboltInit` are exported**, enforced by
-  `firebolt_adbc.version`. If you add a public entry point, add it there too.
+  `adbc_driver_firebolt.version`. If you add a public entry point, add it there too.
 - **Test the failure, not just the success.** Every option the driver accepts has
   a wrong value someone will pass; the interesting test is what happens then. An
   exception must never escape through the C ABI — it aborts the host process.
@@ -118,7 +118,7 @@ every run and are gitignored.
 
 ## Versioning and releases
 
-`project(firebolt_adbc VERSION ...)` in `CMakeLists.txt` is the single source of
+`project(adbc_driver_firebolt VERSION ...)` in `CMakeLists.txt` is the single source of
 truth. It feeds the shared library soname and the `ADBC_INFO_DRIVER_VERSION`
 string through the generated `src/Version.h.in`, so there is one number to bump.
 

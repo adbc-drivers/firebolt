@@ -13,12 +13,12 @@
 # limitations under the License.
 
 ---
-# Publishes a GitHub release with a prebuilt libfirebolt_adbc.so per
+# Publishes a GitHub release with a prebuilt libadbc_driver_firebolt.so per
 # architecture, so consumers never have to clone the repo, initialise five
 # submodules and run a Docker build just to run their first query.
 #
 # Trigger: push a tag matching v*, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
-# The tag must agree with `project(firebolt_adbc VERSION ...)` in CMakeLists.txt;
+# The tag must agree with `project(adbc_driver_firebolt VERSION ...)` in CMakeLists.txt;
 # the `check-version` job fails the release if it does not.
 #
 # workflow_dispatch builds and uploads the artifacts without creating a
@@ -44,7 +44,7 @@ jobs:
       - name: Compare tag with CMakeLists.txt
         run: |
           set -euo pipefail
-          cmake_version="$(sed -n 's/^project(firebolt_adbc VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          cmake_version="$(sed -n 's/^project(adbc_driver_firebolt VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
           if [ -z "$cmake_version" ]; then
             echo "Could not parse the project version out of CMakeLists.txt" >&2
             exit 1
@@ -57,7 +57,7 @@ jobs:
           tag_version="${GITHUB_REF_NAME#v}"
           echo "Tag version: $tag_version"
           if [ "$tag_version" != "$cmake_version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match project(firebolt_adbc VERSION $cmake_version)." >&2
+            echo "Tag $GITHUB_REF_NAME does not match project(adbc_driver_firebolt VERSION $cmake_version)." >&2
             echo "Bump CMakeLists.txt and re-tag so the .so soname and ADBC_INFO_DRIVER_VERSION agree." >&2
             exit 1
           fi
@@ -85,17 +85,23 @@ jobs:
       - name: Unit tests
         run: ./scripts/test-unit.sh
 
-      # build/libfirebolt_adbc.so is a symlink into the versioned soname.
+      # build/libadbc_driver_firebolt.so is a symlink into the versioned soname.
       # Ship a single flat, dereferenced file: driver managers are given an
       # explicit path, so the soname chain buys nothing on the consumer side.
+      # It goes into a per-architecture archive rather than being renamed per
+      # architecture, because a driver manager derives the entry point from the
+      # file name (libadbc_driver_firebolt.so -> AdbcDriverFireboltInit).
       - name: Stage artifact
         run: |
           set -euo pipefail
-          mkdir -p dist
-          cp -L build/libfirebolt_adbc.so "dist/libfirebolt_adbc-${{ matrix.arch }}.so"
+          archive="adbc_driver_firebolt-linux-${{ matrix.arch }}.tar.gz"
+          mkdir -p staging dist
+          cp -L build/libadbc_driver_firebolt.so staging/
+          cp LICENSE.txt NOTICE.txt staging/
+          tar -C staging -czf "dist/$archive" libadbc_driver_firebolt.so LICENSE.txt NOTICE.txt
           cp firebolt.toml dist/firebolt.toml
           cd dist
-          sha256sum "libfirebolt_adbc-${{ matrix.arch }}.so" > "libfirebolt_adbc-${{ matrix.arch }}.so.sha256"
+          sha256sum "$archive" > "$archive.sha256"
           ls -l
 
       # Fail loudly rather than shipping a .so that needs libraries the user
@@ -104,7 +110,7 @@ jobs:
       - name: Check runtime dependencies
         run: |
           set -euo pipefail
-          needed="$(readelf -d "dist/libfirebolt_adbc-${{ matrix.arch }}.so" \
+          needed="$(readelf -d staging/libadbc_driver_firebolt.so \
             | awk '/\(NEEDED\)/ { gsub(/[][]/, "", $5); print $5 }' | sort)"
           echo "DT_NEEDED:"
           echo "$needed"
@@ -116,7 +122,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: libfirebolt_adbc-${{ matrix.arch }}
+          name: adbc_driver_firebolt-linux-${{ matrix.arch }}
           path: dist/
           if-no-files-found: error
 
@@ -136,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          find artifacts -type f -name 'libfirebolt_adbc-*' -exec cp {} dist/ \;
+          find artifacts -type f -name 'adbc_driver_firebolt-linux-*' -exec cp {} dist/ \;
           # firebolt.toml is architecture-independent; both build jobs upload an
           # identical copy, so take whichever one landed first.
           find artifacts -type f -name 'firebolt.toml' -print -quit \
@@ -154,11 +160,12 @@ jobs:
 
           | File | Platform |
           |------|----------|
-          | \`libfirebolt_adbc-x86_64.so\` | Linux x86_64 (glibc 2.34+) |
-          | \`libfirebolt_adbc-aarch64.so\` | Linux aarch64 (glibc 2.34+) |
+          | \`adbc_driver_firebolt-linux-x86_64.tar.gz\` | Linux x86_64 (glibc 2.34+) |
+          | \`adbc_driver_firebolt-linux-aarch64.tar.gz\` | Linux aarch64 (glibc 2.34+) |
           | \`firebolt.toml\` | ADBC driver manifest (optional) |
 
-          Verify a download with the matching \`.sha256\` file, then see the
+          Each archive holds \`libadbc_driver_firebolt.so\`, \`LICENSE.txt\` and
+          \`NOTICE.txt\`. Verify a download with the matching \`.sha256\` file, then see the
           [quickstart](https://github.com/firebolt-db/firebolt-adbc#quickstart).
 
           This build reaches plaintext \`http://\` endpoints only — see

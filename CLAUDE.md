@@ -18,7 +18,7 @@ limitations under the License.
 
 ## Project Overview
 
-A standalone C++ shared library (`libfirebolt_adbc.so`) implementing the
+A standalone C++ shared library (`libadbc_driver_firebolt.so`) implementing the
 [ADBC 1.1.0](https://arrow.apache.org/adbc/) C API against Firebolt's HTTP query
 interface. Client-side only — loaded at runtime by ADBC driver managers (Python
 `adbc_driver_manager`, R `adbcdrivermanager`, etc.).
@@ -57,7 +57,7 @@ private keys, including test material: generate test certificates at run time.
 │
 ├── CMakeLists.txt                         # standalone CMake project; project(VERSION) is authoritative
 ├── CMakePresets.json                      # presets: standalone-clang / standalone-gcc
-├── firebolt_adbc.version                  # linker version script (exports only AdbcDriverInit)
+├── adbc_driver_firebolt.version                  # linker version script (exports only AdbcDriverInit)
 ├── adbc.h                                 # vendored ADBC 1.1.0 C header + Arrow C ABI structs
 ├── submodule/                             # all non-system deps (git submodules + local static builds)
 │
@@ -139,7 +139,7 @@ use, and it passes `-DFIREBOLT_ADBC_BUILD_TESTS=ON -DWITH_SSL=ON`.
 
 ```bash
 ./scripts/build.sh
-# → build/libfirebolt_adbc.so -> libfirebolt_adbc.so.0 -> libfirebolt_adbc.so.0.1.0
+# → build/libadbc_driver_firebolt.so -> libadbc_driver_firebolt.so.0 -> libadbc_driver_firebolt.so.0.1.0
 ```
 
 ### Direct host build (faster to iterate, not shippable)
@@ -218,12 +218,12 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   libstdc++ gained those in 13, and the builder image has 11 — so digits go through
   `snprintf` and `withTimeUnit` dispatches an Arrow time unit to its duration type.
   Hence no vendored date library.
-- **Version script** (`firebolt_adbc.version`) — exports only `AdbcDriverInit` and
+- **Version script** (`adbc_driver_firebolt.version`) — exports only `AdbcDriverInit` and
   `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from the
   driver name; all other symbols (including libc++ internals) are hidden, and nothing
   outside `Adbc*` is exported.
 - **Post-build dependency report** — every build prints concise `DT_NEEDED` `.so` names
-  for `libfirebolt_adbc.so` so dynamic dependencies are visible in Ninja logs.
+  for `libadbc_driver_firebolt.so` so dynamic dependencies are visible in Ninja logs.
 - **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` wraps table
   names, column names and struct field names in double quotes (embedding `"` doubled)
   before they are interpolated into auto-generated DDL/INSERT SQL.
@@ -246,7 +246,7 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 - **Generated test artifacts are gitignored** — every test run regenerates
   `tests/integration/_test_runtime_root/` (compose yaml, container logs);
   the directory is in `.gitignore` so it is never committed.
-- **One version number** — `project(firebolt_adbc VERSION …)` in `CMakeLists.txt` is
+- **One version number** — `project(adbc_driver_firebolt VERSION …)` in `CMakeLists.txt` is
   authoritative. `configure_file` renders `src/Version.h.in` into
   `build/generated/Version.h`, whose `FIREBOLT_ADBC_VERSION` supplies
   `ADBC_INFO_DRIVER_VERSION`; the same value sets the target `VERSION`/`SOVERSION`.

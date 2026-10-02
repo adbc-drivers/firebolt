@@ -24,7 +24,7 @@ so a query lands straight in pyarrow, pandas, or polars.
 It is a client-side library only: a driver manager
 ([Python](https://pypi.org/project/adbc-driver-manager/),
 [R](https://cran.r-project.org/package=adbcdrivermanager), Go, …) loads
-`libfirebolt_adbc.so` at runtime. Nothing needs to be installed on the server.
+`libadbc_driver_firebolt.so` at runtime. Nothing needs to be installed on the server.
 
 ## Supported today
 
@@ -54,14 +54,19 @@ pip install adbc-driver-manager pyarrow
 
 **2. Download the driver**
 
-Grab `libfirebolt_adbc-x86_64.so` (or `-aarch64`) from the
-[latest release](https://github.com/firebolt-db/firebolt-adbc/releases/latest):
+Grab `adbc_driver_firebolt-linux-x86_64.tar.gz` (or `-aarch64`) from the
+[latest release](https://github.com/adbc-drivers/firebolt/releases/latest) and
+unpack `libadbc_driver_firebolt.so` from it:
 
 ```bash
-curl -sSLO https://github.com/firebolt-db/firebolt-adbc/releases/latest/download/libfirebolt_adbc-x86_64.so
-curl -sSLO https://github.com/firebolt-db/firebolt-adbc/releases/latest/download/libfirebolt_adbc-x86_64.so.sha256
-sha256sum -c libfirebolt_adbc-x86_64.so.sha256
+curl -sSLO https://github.com/adbc-drivers/firebolt/releases/latest/download/adbc_driver_firebolt-linux-x86_64.tar.gz
+curl -sSLO https://github.com/adbc-drivers/firebolt/releases/latest/download/adbc_driver_firebolt-linux-x86_64.tar.gz.sha256
+sha256sum -c adbc_driver_firebolt-linux-x86_64.tar.gz.sha256
+tar -xzf adbc_driver_firebolt-linux-x86_64.tar.gz
 ```
+
+Keep the file name as it is: a driver manager derives the entry point
+`AdbcDriverFireboltInit` from it.
 
 **3. Start a Firebolt engine**
 
@@ -83,7 +88,7 @@ curl -fsS http://localhost:3473/ping && echo ok
 import adbc_driver_manager.dbapi as dbapi
 
 with dbapi.connect(
-    driver="./libfirebolt_adbc-x86_64.so",
+    driver="./libadbc_driver_firebolt.so",
     db_kwargs={"uri": "http://localhost:3473"},
 ) as conn:
     with conn.cursor() as cur:
@@ -444,7 +449,7 @@ Only needed to develop the driver — consumers should use a
 and git.
 
 ```bash
-./scripts/build.sh              # → build/libfirebolt_adbc.so
+./scripts/build.sh              # → build/libadbc_driver_firebolt.so
 ./scripts/test-unit.sh          # C++ unit tests, no server needed
 ./scripts/test-integration.sh   # pytest against a throwaway 1-node engine
 ```

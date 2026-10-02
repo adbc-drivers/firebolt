@@ -15,7 +15,7 @@
 # ADBC driver manifest for the Firebolt driver.
 #
 # Installing this file lets callers say `driver="firebolt"` instead of passing
-# an absolute path to libfirebolt_adbc.so:
+# an absolute path to libadbc_driver_firebolt.so:
 #
 #     import adbc_driver_manager.dbapi as dbapi
 #     dbapi.connect(driver="firebolt", db_kwargs={"uri": "http://localhost:3473"})
@@ -49,5 +49,5 @@ source = "https://github.com/firebolt-db/firebolt-adbc"
 # explicit: entrypoint = "AdbcDriverFireboltInit"
 
 [Driver.shared]
-linux_amd64 = "/usr/local/lib/libfirebolt_adbc.so"
-linux_arm64 = "/usr/local/lib/libfirebolt_adbc.so"
+linux_amd64 = "/usr/local/lib/libadbc_driver_firebolt.so"
+linux_arm64 = "/usr/local/lib/libadbc_driver_firebolt.so"

@@ -32,7 +32,7 @@ The common local and CI setup. Supply no token and the driver sends no
 import adbc_driver_manager.dbapi as dbapi
 
 conn = dbapi.connect(
-    driver="/path/to/libfirebolt_adbc.so",
+    driver="/path/to/libadbc_driver_firebolt.so",
     db_kwargs={"uri": "http://localhost:3473"},
 )
 ```
@@ -49,7 +49,7 @@ driver sends `Authorization: Bearer <token>` on every request:
 import os
 
 conn = dbapi.connect(
-    driver="/path/to/libfirebolt_adbc.so",
+    driver="/path/to/libadbc_driver_firebolt.so",
     db_kwargs={
         "uri": "http://engine.internal:3473",
         "adbc.firebolt.token": os.environ["FIREBOLT_TOKEN"],

@@ -29,7 +29,7 @@ from helpers.mock_firebolt_server import MockFireboltServer
 
 ADBC_DRIVER_PATH = os.environ.get(
     "PACKDB_TESTS_ADBC_BINARY_PATH",
-    p.normpath(p.join(p.dirname(__file__), "..", "..", "build", "libfirebolt_adbc.so")),
+    p.normpath(p.join(p.dirname(__file__), "..", "..", "build", "libadbc_driver_firebolt.so")),
 )
 
 
