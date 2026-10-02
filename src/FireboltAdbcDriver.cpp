@@ -262,6 +262,14 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
         return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
     const std::string k(key);
     const std::string v(value ? value : "");
+    // DatabaseInit validates the endpoint and picks the CA bundle from these two.
+    // A change after it would bypass both — an http:// database switched to
+    // https:// would have no CA bundle at all — so refuse rather than half-apply.
+    if (fdb->initialized && (k == "uri" || k == "adbc.firebolt.ssl_certificate_path"))
+        return SetError(
+            error,
+            ADBC_STATUS_INVALID_STATE,
+            "Option '" + k + "' must be set before AdbcDatabaseInit; open a new database to use another value");
     if (k == "uri")
         fdb->url = v;
     else if (k == "adbc.firebolt.token")

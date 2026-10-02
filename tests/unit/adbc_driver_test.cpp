@@ -13,11 +13,13 @@
 
 #include <curl/curl.h>
 
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <string>
 #include <utility>
 #include <vector>
+#include <unistd.h>
 
 // Entry points defined in FireboltAdbcDriver.cpp
 extern "C" AdbcStatusCode AdbcDriverInit(int version, void * raw_driver, AdbcError * error);
@@ -256,6 +258,28 @@ TEST(DatabaseOptionTest, UnknownFireboltOptionRejectedImmediatelyAfterInit)
         error.release(&error);
 }
 
+TEST(DatabaseOptionTest, EndpointAndCaBundleRefusedAfterInit)
+{
+    // Both are validated and resolved by DatabaseInit (scheme check, CA bundle).
+    // Accepting a change afterwards would skip that: an http:// database moved
+    // to https:// would have no CA bundle, and a new bundle would never be used.
+    AdbcDriver driver = InitDriver();
+    AdbcDatabase db{};
+    AdbcError error = ADBC_ERROR_INIT;
+    ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "http://localhost:3473", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseInit(&db, &error), ADBC_STATUS_OK);
+    for (const char * key : {"uri", "adbc.firebolt.ssl_certificate_path"})
+    {
+        EXPECT_EQ(driver.DatabaseSetOption(&db, key, "https://elsewhere.example.com", &error), ADBC_STATUS_INVALID_STATE) << key;
+        ASSERT_NE(error.message, nullptr) << key;
+        EXPECT_NE(std::string(error.message).find(key), std::string::npos) << error.message;
+        error.release(&error);
+        error = ADBC_ERROR_INIT;
+    }
+    driver.DatabaseRelease(&db, nullptr);
+}
+
 TEST(DatabaseOptionTest, NonNamespacedOptionStillAccepted)
 {
     // Keys outside the adbc.firebolt.* namespace are set by the driver manager
@@ -391,12 +415,26 @@ TEST(DatabaseInitTest, PlainHttpUriAccepted)
 
 TEST(DatabaseInitTest, HttpsUriRejectedWhenCurlHasNoTls)
 {
-    // The shipped build links curl without TLS, so https:// can never work.
-    // Say so at Init, naming the limitation, instead of letting the first
-    // query fail with CURLE_UNSUPPORTED_PROTOCOL.
+    // A driver built with -DWITH_SSL=OFF can never reach https://.  Say so at
+    // Init, naming the limitation, instead of letting the first query fail with
+    // CURLE_UNSUPPORTED_PROTOCOL.  A TLS build (what ships) must accept it.
+    //
+    // The CA bundle is named explicitly so the outcome does not depend on the
+    // host's certificates or SSL_CERT_FILE: test-unit.sh runs on the host.
+    char ca_path[] = "/tmp/firebolt-adbc-test-ca-XXXXXX";
+    const int fd = mkstemp(ca_path);
+    ASSERT_GE(fd, 0);
+    close(fd);
+
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    AdbcStatusCode code = InitWithUri(driver, "https://api.example.com", &error);
+    AdbcDatabase db{};
+    ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "https://api.example.com", &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "adbc.firebolt.ssl_certificate_path", ca_path, &error), ADBC_STATUS_OK);
+    AdbcStatusCode code = driver.DatabaseInit(&db, &error);
+    driver.DatabaseRelease(&db, nullptr);
+    std::remove(ca_path);
     if (CurlHasTls())
     {
         EXPECT_EQ(code, ADBC_STATUS_OK) << "this build has TLS; https:// must be accepted";

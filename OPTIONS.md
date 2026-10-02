@@ -40,6 +40,7 @@ Errors:
 | `uri` is `https://` on a build without TLS | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `adbc.firebolt.ssl_certificate_path` or `SSL_CERT_FILE` names a file that is not readable | `ADBC_STATUS_INVALID_ARGUMENT` |
 | `uri` is `https://` and no system CA bundle exists | `ADBC_STATUS_INVALID_STATE` |
+| `uri` or `adbc.firebolt.ssl_certificate_path` set after `Init` | `ADBC_STATUS_INVALID_STATE`, at once |
 | `adbc.firebolt.timeout_sec` not a non-negative integer | `ADBC_STATUS_INVALID_ARGUMENT` |
 | unknown `adbc.firebolt.*` key | `ADBC_STATUS_NOT_FOUND` |
 
