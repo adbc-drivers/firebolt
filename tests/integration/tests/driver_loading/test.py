@@ -26,23 +26,26 @@ import re
 
 import adbc_driver_manager
 import pytest
-
 from conftest import ADBC_DRIVER_PATH
 
 
 @pytest.mark.parametrize("entrypoint", ["AdbcDriverFireboltInit", "AdbcDriverInit"])
 def test_entrypoint_loads(mock_server, entrypoint):
-    with adbc_driver_manager.AdbcDatabase(
-        driver=ADBC_DRIVER_PATH, entrypoint=entrypoint, uri=mock_server.url
-    ) as db:
-        with adbc_driver_manager.AdbcConnection(db):
-            pass
+    with (
+        adbc_driver_manager.AdbcDatabase(
+            driver=ADBC_DRIVER_PATH, entrypoint=entrypoint, uri=mock_server.url
+        ) as db,
+        adbc_driver_manager.AdbcConnection(db),
+    ):
+        pass
 
 
 def test_non_adbc_entrypoint_is_not_exported(mock_server):
     with pytest.raises(adbc_driver_manager.Error, match="FireboltAdbcDriverInit"):
         adbc_driver_manager.AdbcDatabase(
-            driver=ADBC_DRIVER_PATH, entrypoint="FireboltAdbcDriverInit", uri=mock_server.url
+            driver=ADBC_DRIVER_PATH,
+            entrypoint="FireboltAdbcDriverInit",
+            uri=mock_server.url,
         )
 
 
@@ -52,7 +55,7 @@ def _derived_entrypoint(path: str) -> str:
     and joined, `Adbc`-prefixed, plus `Init` (adbc_driver_manager.cc,
     InternalAdbcDriverManagerDefaultEntrypoint)."""
     stem = os.path.basename(path).split(".", 1)[0]
-    stem = stem[3:] if stem.startswith("lib") else stem
+    stem = stem.removeprefix("lib")
     name = "".join(t[:1].upper() + t[1:] for t in re.split(r"[-_]", stem))
     return (name if name.startswith("Adbc") else "Adbc" + name) + "Init"
 

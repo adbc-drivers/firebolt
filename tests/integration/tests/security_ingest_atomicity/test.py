@@ -24,10 +24,9 @@ These tests use the real Firebolt Core fixture so the table state can
 be inspected via SQL after the failed ingest attempt.
 """
 
+import adbc_driver_manager
 import pyarrow as pa
 import pytest
-
-import adbc_driver_manager
 
 
 def _make_statement(conn):
@@ -39,7 +38,7 @@ def test_replace_without_bind_preserves_table(conn, run_query, table_name):
     table intact, NOT dropped-and-recreated empty."""
     run_query(f'CREATE TABLE "{table_name}" (id INT, label TEXT)')
     try:
-        run_query(f'INSERT INTO "{table_name}" VALUES (1, \'preexisting\')')
+        run_query(f"INSERT INTO \"{table_name}\" VALUES (1, 'preexisting')")
 
         with _make_statement(conn) as stmt:
             stmt.set_options(
@@ -49,7 +48,7 @@ def test_replace_without_bind_preserves_table(conn, run_query, table_name):
                 }
             )
             # Deliberately do NOT bind data.
-            with pytest.raises(Exception):
+            with pytest.raises(adbc_driver_manager.ProgrammingError):
                 stmt.execute_update()
 
         # The pre-existing row must still be there.
@@ -75,12 +74,12 @@ def test_create_without_bind_does_not_create_table(conn, run_query, table_name):
                 "adbc.ingest.mode": "adbc.ingest.mode.create",
             }
         )
-        with pytest.raises(Exception):
+        with pytest.raises(adbc_driver_manager.ProgrammingError):
             stmt.execute_update()
 
     # The table must still not exist — i.e. SELECT must fail with a "not found"
     # style error, not return zero rows from a successful CREATE.
-    with pytest.raises(Exception):
+    with pytest.raises(adbc_driver_manager.ProgrammingError):
         run_query(f'SELECT * FROM "{table_name}" LIMIT 0')
 
 
@@ -102,7 +101,7 @@ def test_failed_ingest_does_not_carry_bytes_to_next_query(conn_to_mock, mock_ser
             }
         )
         stmt.bind_stream(table.to_reader())
-        with pytest.raises(Exception):
+        with pytest.raises(adbc_driver_manager.OperationalError):
             stmt.execute_update()
 
         # Step 2: issue a plain SELECT on the SAME statement.  The mock
@@ -125,9 +124,13 @@ def test_failed_ingest_does_not_carry_bytes_to_next_query(conn_to_mock, mock_ser
 
 def test_append_with_bind_still_works(conn, run_query, temp_table):
     """Sanity: legitimate ingest path (bind + execute_update) remains green."""
-    table = pa.table({"id": pa.array([1, 2, 3], type=pa.int32()),
-                      "label": pa.array(["a", "b", "c"]),
-                      "value": pa.array([1.0, 2.0, 3.0])})
+    table = pa.table(
+        {
+            "id": pa.array([1, 2, 3], type=pa.int32()),
+            "label": pa.array(["a", "b", "c"]),
+            "value": pa.array([1.0, 2.0, 3.0]),
+        }
+    )
 
     with _make_statement(conn) as stmt:
         stmt.set_options(

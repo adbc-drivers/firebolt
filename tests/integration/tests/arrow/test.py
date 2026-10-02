@@ -20,6 +20,8 @@ correct handling of large result sets (multi-batch), and that the Arrow C Stream
 interface is properly implemented.
 """
 
+import math
+
 import pyarrow as pa
 import pytest
 
@@ -107,7 +109,9 @@ class TestResultShape:
         assert t.num_columns == 50
         assert t.num_rows == 1
 
-    def test_result_values_correct_for_large_dataset(self, run_query, temp_table) -> None:
+    def test_result_values_correct_for_large_dataset(
+        self, run_query, temp_table
+    ) -> None:
         n = 500
         values = ", ".join(f"({i}, 'x', 0.0)" for i in range(n))
         run_query(f"INSERT INTO {temp_table} VALUES {values}")
@@ -135,7 +139,9 @@ class TestArrowCStreamInterface:
             with adbc_driver_manager.AdbcStatement(conn) as stmt:
                 stmt.set_sql_query(f"SELECT {val} AS x")
                 reader, _ = stmt.execute_query()
-                results.append(pa.RecordBatchReader.from_stream(reader).read_all()["x"][0].as_py())
+                results.append(
+                    pa.RecordBatchReader.from_stream(reader).read_all()["x"][0].as_py()
+                )
 
         assert results == [10, 20]
 
@@ -150,9 +156,7 @@ class TestArrowCStreamInterface:
 
     def test_chunked_array_values(self, run_query) -> None:
         """Individual array chunks all contain valid data."""
-        t = run_query(
-            " UNION ALL ".join(f"SELECT {i} AS x" for i in range(20))
-        )
+        t = run_query(" UNION ALL ".join(f"SELECT {i} AS x" for i in range(20)))
         values = []
         for chunk in t["x"].chunks:
             values.extend(chunk.to_pylist())
@@ -163,36 +167,44 @@ class TestErrorHandling:
     def test_syntax_error_raises(self, conn) -> None:
         import adbc_driver_manager
 
-        with pytest.raises(Exception):
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query("THIS IS NOT VALID SQL !@#$")
-                stmt.execute_query()
+        with (
+            pytest.raises(adbc_driver_manager.ProgrammingError),
+            adbc_driver_manager.AdbcStatement(conn) as stmt,
+        ):
+            stmt.set_sql_query("THIS IS NOT VALID SQL !@#$")
+            stmt.execute_query()
 
     def test_unknown_table_raises(self, conn) -> None:
         import adbc_driver_manager
 
-        with pytest.raises(Exception):
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query("SELECT * FROM table_that_does_not_exist_xyz")
-                stmt.execute_query()
+        with (
+            pytest.raises(adbc_driver_manager.ProgrammingError),
+            adbc_driver_manager.AdbcStatement(conn) as stmt,
+        ):
+            stmt.set_sql_query("SELECT * FROM table_that_does_not_exist_xyz")
+            stmt.execute_query()
 
     def test_type_error_raises(self, conn) -> None:
         import adbc_driver_manager
 
-        with pytest.raises(Exception):
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query("SELECT 'abc' + 123")
-                stmt.execute_query()
+        with (
+            pytest.raises(adbc_driver_manager.ProgrammingError),
+            adbc_driver_manager.AdbcStatement(conn) as stmt,
+        ):
+            stmt.set_sql_query("SELECT 'abc' + 123")
+            stmt.execute_query()
 
     def test_division_by_zero(self, run_query) -> None:
+        import adbc_driver_manager
+
         # Firebolt may return NULL or raise; just verify it doesn't crash the driver.
         try:
             t = run_query("SELECT 1 / 0 AS x")
-            # If it returns a result, value should be NULL or infinity
-            v = t["x"][0].as_py()
-            assert v is None or v != v or abs(v) > 1e30  # NULL, NaN, or inf
-        except Exception:
-            pass  # Raising is also acceptable
+        except (adbc_driver_manager.Error, pa.ArrowException):
+            return  # Raising is also acceptable
+        # If it returns a result, value should be NULL or infinity
+        v = t["x"][0].as_py()
+        assert v is None or math.isnan(v) or abs(v) > 1e30  # NULL, NaN, or inf
 
     def test_connection_remains_usable_after_error(self, conn) -> None:
         """A query error must not invalidate the connection."""
@@ -203,11 +215,14 @@ class TestErrorHandling:
             with adbc_driver_manager.AdbcStatement(conn) as stmt:
                 stmt.set_sql_query("SELECT * FROM no_such_table_zzz")
                 stmt.execute_query()
-        except Exception:
+        except adbc_driver_manager.ProgrammingError:
             pass
 
         # Connection should still work.
         with adbc_driver_manager.AdbcStatement(conn) as stmt:
             stmt.set_sql_query("SELECT 42 AS x")
             reader, _ = stmt.execute_query()
-            assert pa.RecordBatchReader.from_stream(reader).read_all()["x"][0].as_py() == 42
+            assert (
+                pa.RecordBatchReader.from_stream(reader).read_all()["x"][0].as_py()
+                == 42
+            )

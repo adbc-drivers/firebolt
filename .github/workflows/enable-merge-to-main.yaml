@@ -23,6 +23,31 @@ permissions:
   contents: read
 
 jobs:
+  # Every hook in .pre-commit-config.yaml except clang-tidy, which needs the
+  # build's compile_commands.json and runs in build-and-test instead.
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.14 for the rat hook: adbc-drivers-dev requires it.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: pre-commit
+        env:
+          SKIP: clang-tidy
+        run: pre-commit run --all-files --color=always --show-diff-on-failure
+
   build-and-test:
     runs-on: ubuntu-24.04
     steps:
@@ -30,6 +55,9 @@ jobs:
 
       - name: Build
         run: ./scripts/build.sh
+
+      - name: clang-tidy
+        run: ./scripts/clang-tidy.sh
 
       - name: Unit tests
         run: ./scripts/test-unit.sh
@@ -60,12 +88,12 @@ jobs:
   merge-gate:
     name: Merge gate
     runs-on: ubuntu-24.04
-    needs: build-and-test
+    needs: [lint, build-and-test]
     if: ${{ always() }}
     steps:
-      - name: Require build-and-test success
+      - name: Require lint and build-and-test success
         run: |
-          if [ "${{ needs.build-and-test.result }}" != "success" ]; then
-            echo "build-and-test did not succeed (${{ needs.build-and-test.result }}), blocking merge."
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.build-and-test.result }}" != "success" ]; then
+            echo "lint: ${{ needs.lint.result }}, build-and-test: ${{ needs.build-and-test.result }}; blocking merge."
             exit 1
           fi

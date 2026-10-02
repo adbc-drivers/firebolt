@@ -26,8 +26,8 @@
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow_ipc.hpp>
 
-#include <curl/curl.h>
 #include <dlfcn.h>
+#include <curl/curl.h>
 
 #include <cstdio>
 #include <cstring>
@@ -257,13 +257,13 @@ AdbcStatusCode InitWithOption(AdbcDriver & driver, const char * key, const char 
 TEST(DatabaseOptionTest, UnknownFireboltOptionRejected)
 {
     // A typo in a driver-namespaced key is a configuration bug, not something
-    // to swallow: `firebolt.databse` would otherwise leave the connection
+    // to swallow: `firebolt.databse` would otherwise leave the connection // codespell:ignore
     // pointed at the server's default database with no diagnostic anywhere.
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "firebolt.databse", "mydb", &error), ADBC_STATUS_NOT_FOUND);
+    EXPECT_EQ(InitWithOption(driver, "firebolt.databse", "mydb", &error), ADBC_STATUS_NOT_FOUND); // codespell:ignore
     ASSERT_NE(error.message, nullptr);
-    EXPECT_NE(std::string(error.message).find("firebolt.databse"), std::string::npos)
+    EXPECT_NE(std::string(error.message).find("firebolt.databse"), std::string::npos) // codespell:ignore
         << "the error should name the offending key, got: " << error.message;
     if (error.release)
         error.release(&error);
@@ -523,7 +523,7 @@ struct InitedDatabase
         if (error.release)
             error.release(&error);
     }
-    firebolt::adbc::FireboltDatabase & fdb() { return *static_cast<firebolt::adbc::FireboltDatabase *>(db.private_data); }
+    firebolt::adbc::FireboltDatabase & fdb() const { return *static_cast<firebolt::adbc::FireboltDatabase *>(db.private_data); }
 };
 
 } // namespace
@@ -1141,7 +1141,7 @@ TEST(ArrowToFireboltTypeTest, NestedListOfStructMapsToNestedArrayOfStruct)
     nanoarrow::UniqueSchema schema = MakeTopLevelSchema(1);
     ArrowSchema * outer = schema->children[0];
     ASSERT_EQ(ArrowSchemaSetType(outer, NANOARROW_TYPE_LIST), 0);
-    ASSERT_EQ(ArrowSchemaSetName(outer, "aas"), 0);
+    ASSERT_EQ(ArrowSchemaSetName(outer, "aas"), 0); // codespell:ignore
     ASSERT_EQ(ArrowSchemaSetType(outer->children[0], NANOARROW_TYPE_LARGE_LIST), 0);
     ASSERT_EQ(ArrowSchemaSetTypeStruct(outer->children[0]->children[0], 1), 0);
     ASSERT_EQ(ArrowSchemaSetType(outer->children[0]->children[0]->children[0], NANOARROW_TYPE_INT32), 0);
@@ -1955,7 +1955,7 @@ TEST(AutocommitTest, NonCanonicalValuesRejected)
 
     // "0" and "FALSE" are the dangerous ones: a caller means autocommit off and
     // silently gets it on.  The rest guard against the same class of typo.
-    for (const char * value : {"0", "1", "FALSE", "True", "flase", "", "yes", "off"})
+    for (const char * value : {"0", "1", "FALSE", "True", "flase", "", "yes", "off"}) // codespell:ignore
     {
         AdbcError error = ADBC_ERROR_INIT;
         EXPECT_EQ(SetAutocommit(driver, db, value, &error), ADBC_STATUS_INVALID_ARGUMENT)
@@ -2615,7 +2615,7 @@ TEST(DescribeParametersTest, ParameterSchemaIsOrderedByOrdinalPosition)
 {
     std::string types = "{";
     for (int i = 1; i <= 11; ++i)
-        types += (i > 1 ? "," : "") + std::string("\"$") + std::to_string(i) + "\":\"integer\"";
+        types += (i > 1 ? "," : "") + std::string(R"("$)") + std::to_string(i) + R"(":"integer")";
     types += "}";
 
     ArrowSchema schema{};

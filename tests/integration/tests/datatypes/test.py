@@ -22,7 +22,6 @@ ADBC driver and represented in the Arrow result with the expected Python type.
 import math
 
 import pyarrow as pa
-import pytest
 
 
 class TestIntegerTypes:
@@ -167,6 +166,7 @@ class TestDateAndTime:
         t = run_query("SELECT '2024-01-15'::DATE AS x")
         v = t["x"][0].as_py()
         import datetime
+
         assert isinstance(v, datetime.date)
         assert v.year == 2024
         assert v.month == 1
@@ -176,10 +176,12 @@ class TestDateAndTime:
         t = run_query("SELECT '2024-06-01 12:30:00'::TIMESTAMP AS x")
         v = t["x"][0].as_py()
         import datetime
+
         assert isinstance(v, (datetime.datetime, int))  # Arrow may return int micros
 
     def test_current_date_is_date(self, run_query) -> None:
         t = run_query("SELECT current_date AS x")
         import datetime
+
         v = t["x"][0].as_py()
         assert isinstance(v, datetime.date)

@@ -115,11 +115,7 @@ class TestMultipleColumns:
 
 class TestMultipleRows:
     def test_union_all_produces_multiple_rows(self, run_query) -> None:
-        t = run_query(
-            "SELECT 1 AS x UNION ALL "
-            "SELECT 2 AS x UNION ALL "
-            "SELECT 3 AS x"
-        )
+        t = run_query("SELECT 1 AS x UNION ALL SELECT 2 AS x UNION ALL SELECT 3 AS x")
         assert t.num_rows == 3
         assert sorted(t["x"].to_pylist()) == [1, 2, 3]
 

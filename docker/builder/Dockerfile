@@ -30,5 +30,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
         > /etc/apt/sources.list.d/llvm.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-        clang-18 lld-18 \
+        clang-18 clang-tidy-18 lld-18 \
     && rm -rf /var/lib/apt/lists/*

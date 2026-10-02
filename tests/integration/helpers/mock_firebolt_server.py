@@ -40,7 +40,7 @@ import subprocess
 import tempfile
 import threading
 from collections import deque
-from typing import Iterable
+from collections.abc import Iterable
 
 
 @dataclasses.dataclass
@@ -100,7 +100,9 @@ class MockFireboltServer:
                         )
                     )
                     response = (
-                        outer._queued.popleft() if outer._queued else _QueuedResponse(200, b"", [])
+                        outer._queued.popleft()
+                        if outer._queued
+                        else _QueuedResponse(200, b"", [])
                     )
                 self.send_response(response.status)
                 self.send_header("Content-Length", str(len(response.body)))
@@ -128,7 +130,9 @@ class MockFireboltServer:
             _generate_self_signed_certificate(self.tls_cert, key)
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(self.tls_cert, key)
-            self._server.socket = context.wrap_socket(self._server.socket, server_side=True)
+            self._server.socket = context.wrap_socket(
+                self._server.socket, server_side=True
+            )
         self.host, self.port = self._server.server_address
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
@@ -148,7 +152,9 @@ class MockFireboltServer:
 
     # ----- test-side controls -----------------------------------------------
 
-    def queue(self, *, status: int = 200, body: bytes = b"", headers: Iterable[tuple] = ()):
+    def queue(
+        self, *, status: int = 200, body: bytes = b"", headers: Iterable[tuple] = ()
+    ):
         """Queue one response to be served on the next request."""
         with self._lock:
             self._queued.append(_QueuedResponse(status, body, list(headers)))
@@ -174,11 +180,24 @@ def _generate_self_signed_certificate(cert_path: str, key_path: str) -> None:
     """A one-day P-256 certificate for 127.0.0.1 and localhost, via the openssl CLI."""
     subprocess.run(
         [
-            "openssl", "req", "-x509", "-nodes", "-days", "1",
-            "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
-            "-subj", "/CN=firebolt-adbc-test",
-            "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost",
-            "-keyout", key_path, "-out", cert_path,
+            "openssl",
+            "req",
+            "-x509",
+            "-nodes",
+            "-days",
+            "1",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:prime256v1",
+            "-subj",
+            "/CN=firebolt-adbc-test",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1,DNS:localhost",
+            "-keyout",
+            key_path,
+            "-out",
+            cert_path,
         ],
         check=True,
         capture_output=True,

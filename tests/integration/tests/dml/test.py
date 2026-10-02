@@ -21,7 +21,6 @@ and filtering.  Each test uses an isolated table via the temp_table fixture
 """
 
 import pyarrow as pa
-import pytest
 
 
 class TestDDL:

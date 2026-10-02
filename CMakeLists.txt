@@ -23,6 +23,8 @@ project(adbc_driver_firebolt VERSION 0.1.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# compile_commands.json is what clang-tidy (scripts/clang-tidy.sh) reads.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FIREBOLT_ADBC_BUILD_TESTS "Build unit tests" OFF)
 option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into adbc_driver_firebolt" ON)

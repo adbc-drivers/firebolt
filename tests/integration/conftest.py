@@ -22,14 +22,14 @@ import adbc_driver_manager
 import pyarrow as pa
 import pytest
 from adbc_driver_manager import dbapi
-
 from helpers import firebolt_engine
 from helpers.mock_firebolt_server import MockFireboltServer
 
-
 ADBC_DRIVER_PATH = os.environ.get(
     "PACKDB_TESTS_ADBC_BINARY_PATH",
-    p.normpath(p.join(p.dirname(__file__), "..", "..", "build", "libadbc_driver_firebolt.so")),
+    p.normpath(
+        p.join(p.dirname(__file__), "..", "..", "build", "libadbc_driver_firebolt.so")
+    ),
 )
 
 
@@ -46,7 +46,9 @@ def started_engine():
 
 @pytest.fixture(scope="session")
 def server_url(started_engine):
-    assert os.path.isfile(ADBC_DRIVER_PATH), f"ADBC driver not found at {ADBC_DRIVER_PATH}"
+    assert os.path.isfile(ADBC_DRIVER_PATH), (
+        f"ADBC driver not found at {ADBC_DRIVER_PATH}"
+    )
     node = started_engine.engines["engine1"].instances["node_1"]
     return f"http://{node.pg_host}:{firebolt_engine.QUERY_PORT}"
 
@@ -54,9 +56,11 @@ def server_url(started_engine):
 @pytest.fixture
 def conn(server_url):
     """A fresh AdbcConnection for each test."""
-    with adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, uri=server_url) as db:
-        with adbc_driver_manager.AdbcConnection(db) as connection:
-            yield connection
+    with (
+        adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, uri=server_url) as db,
+        adbc_driver_manager.AdbcConnection(db) as connection,
+    ):
+        yield connection
 
 
 @pytest.fixture
@@ -85,15 +89,26 @@ def ingest(conn):
     API, mirroring what the dbapi Cursor.adbc_ingest() wrapper does internally.
     Used to pin the C++ driver against the option set the wrapper sends."""
 
-    def _ingest(table_name, data, mode="adbc.ingest.mode.create", *, catalog=None, db_schema=None):
+    def _ingest(
+        table_name,
+        data,
+        mode="adbc.ingest.mode.create",
+        *,
+        catalog=None,
+        db_schema=None,
+    ):
         options = {
             adbc_driver_manager.StatementOptions.INGEST_MODE.value: mode,
             adbc_driver_manager.StatementOptions.INGEST_TARGET_TABLE.value: table_name,
         }
         if catalog is not None:
-            options[adbc_driver_manager.StatementOptions.INGEST_TARGET_CATALOG.value] = catalog
+            options[
+                adbc_driver_manager.StatementOptions.INGEST_TARGET_CATALOG.value
+            ] = catalog
         if db_schema is not None:
-            options[adbc_driver_manager.StatementOptions.INGEST_TARGET_DB_SCHEMA.value] = db_schema
+            options[
+                adbc_driver_manager.StatementOptions.INGEST_TARGET_DB_SCHEMA.value
+            ] = db_schema
 
         with adbc_driver_manager.AdbcStatement(conn) as stmt:
             stmt.set_options(**options)
@@ -164,10 +179,16 @@ def tls_mock_server():
 @pytest.fixture
 def conn_to_mock(mock_server):
     """An AdbcConnection pointed at the mock server instead of a real engine."""
-    assert os.path.isfile(ADBC_DRIVER_PATH), f"ADBC driver not found at {ADBC_DRIVER_PATH}"
-    with adbc_driver_manager.AdbcDatabase(driver=ADBC_DRIVER_PATH, uri=mock_server.url) as db:
-        with adbc_driver_manager.AdbcConnection(db) as connection:
-            yield connection
+    assert os.path.isfile(ADBC_DRIVER_PATH), (
+        f"ADBC driver not found at {ADBC_DRIVER_PATH}"
+    )
+    with (
+        adbc_driver_manager.AdbcDatabase(
+            driver=ADBC_DRIVER_PATH, uri=mock_server.url
+        ) as db,
+        adbc_driver_manager.AdbcConnection(db) as connection,
+    ):
+        yield connection
 
 
 @pytest.fixture

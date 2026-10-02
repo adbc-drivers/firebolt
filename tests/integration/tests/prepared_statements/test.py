@@ -47,7 +47,9 @@ class TestParameterSchema:
 
     def test_schema_of_several_parameters(self, dbapi_conn, temp_table) -> None:
         with dbapi_conn.cursor() as cur:
-            schema = cur.adbc_prepare(f"SELECT id FROM {temp_table} WHERE id = $1 AND label = $2")
+            schema = cur.adbc_prepare(
+                f"SELECT id FROM {temp_table} WHERE id = $1 AND label = $2"
+            )
         assert [field.name for field in schema] == ["$1", "$2"]
         assert pa.types.is_integer(schema.field(0).type)
         assert pa.types.is_string(schema.field(1).type)
@@ -67,9 +69,11 @@ class TestParameterSchema:
         assert len(schema) == 0
 
     def test_invalid_sql_is_reported(self, dbapi_conn) -> None:
-        with dbapi_conn.cursor() as cur:
-            with pytest.raises(Exception):
-                cur.adbc_prepare("SELECT FROM WHERE $1")
+        with (
+            dbapi_conn.cursor() as cur,
+            pytest.raises(adbc_driver_manager.ProgrammingError),
+        ):
+            cur.adbc_prepare("SELECT FROM WHERE $1")
 
     def test_prepare_then_execute(self, dbapi_conn, temp_table) -> None:
         with dbapi_conn.cursor() as cur:
@@ -83,14 +87,16 @@ class TestParameterSchema:
 class TestRequestBudget:
     """What actually goes over the wire, measured against the mock server."""
 
-    def test_execute_with_parameters_sends_one_request(self, mock_server, conn_to_mock) -> None:
+    def test_execute_with_parameters_sends_one_request(
+        self, mock_server, conn_to_mock
+    ) -> None:
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
             stmt.prepare()
             stmt.bind(pa.record_batch([[41]], names=["0"]))
             try:
                 stmt.execute_query()
-            except Exception:
+            except adbc_driver_manager.OperationalError:
                 # The mock answers 200 with an empty body, so the driver reports an
                 # Arrow parse error.  Only the captured request matters here.
                 pass
@@ -107,15 +113,25 @@ class TestRequestBudget:
             stmt.prepare()
         assert mock_server.captured == []
 
-    def test_get_parameter_schema_asks_the_server_every_time(self, mock_server, conn_to_mock) -> None:
+    def test_get_parameter_schema_asks_the_server_every_time(
+        self, mock_server, conn_to_mock
+    ) -> None:
         """The answer depends on the objects the statement names, so DDL changes it
         while the text stays the same, and no event the driver sees marks that moment
         (set_sql_query is re-issued only on a text change).  So: no cache — the second
         describe reports a different type and the caller must see it."""
         mock_server.queue(
-            status=200, body=_arrow_one_string_cell(b'{"result_columns":[],"parameter_types":{"$1":"integer"}}')
+            status=200,
+            body=_arrow_one_string_cell(
+                b'{"result_columns":[],"parameter_types":{"$1":"integer"}}'
+            ),
         )
-        mock_server.queue(status=200, body=_arrow_one_string_cell(b'{"result_columns":[],"parameter_types":{"$1":"text"}}'))
+        mock_server.queue(
+            status=200,
+            body=_arrow_one_string_cell(
+                b'{"result_columns":[],"parameter_types":{"$1":"text"}}'
+            ),
+        )
 
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
@@ -124,12 +140,18 @@ class TestRequestBudget:
             second = pa.schema(stmt.get_parameter_schema())
 
         assert first.field(0).type == pa.int32()
-        assert second.field(0).type == pa.string(), "a stale parameter type was served from a cache"
+        assert second.field(0).type == pa.string(), (
+            "a stale parameter type was served from a cache"
+        )
         assert len(mock_server.captured) == 2
         for request in mock_server.captured:
-            assert _query_param(request.path, "execution_mode") == ["describe_parameters"]
+            assert _query_param(request.path, "execution_mode") == [
+                "describe_parameters"
+            ]
 
-    def test_describe_does_not_join_an_open_transaction(self, mock_server, conn_to_mock) -> None:
+    def test_describe_does_not_join_an_open_transaction(
+        self, mock_server, conn_to_mock
+    ) -> None:
         """Type inference must not spend a transaction step on a statement the caller
         never ran, so the transaction session parameters are left off — the exclusion
         the server's own PostgreSQL handler makes for Describe."""
@@ -138,7 +160,12 @@ class TestRequestBudget:
         mock_server.queue(
             status=200,
             body=b"",
-            headers=[("Firebolt-Update-Parameters", "transaction_id=tx-1,transaction_sequence_id=7")],
+            headers=[
+                (
+                    "Firebolt-Update-Parameters",
+                    "transaction_id=tx-1,transaction_sequence_id=7",
+                )
+            ],
         )
         # The statement itself, then the describe: the queue is consumed in order.
         mock_server.queue(status=200, body=b"")
@@ -150,7 +177,7 @@ class TestRequestBudget:
             stmt.set_sql_query("SELECT 1")
             try:
                 stmt.execute_query()
-            except Exception:
+            except adbc_driver_manager.OperationalError:
                 pass
 
             stmt.set_sql_query("SELECT $1")
@@ -159,7 +186,9 @@ class TestRequestBudget:
         # The BEGIN, the statement, then the describe.
         assert len(mock_server.captured) == 3
         statement_path = mock_server.captured[1].path
-        assert _query_param(statement_path, "transaction_id") == ["tx-1"], "the statement must join the transaction"
+        assert _query_param(statement_path, "transaction_id") == ["tx-1"], (
+            "the statement must join the transaction"
+        )
 
         describe_path = mock_server.captured[2].path
         assert _query_param(describe_path, "execution_mode") == ["describe_parameters"]
@@ -169,33 +198,42 @@ class TestRequestBudget:
     def test_bound_parameters_override_a_session_parameter_of_the_same_name(
         self, mock_server, conn_to_mock
     ) -> None:
-        conn_to_mock.set_options(**{"query_parameters": '[{"name":"$1","value":"stale"}]'})
+        conn_to_mock.set_options(query_parameters='[{"name":"$1","value":"stale"}]')
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
             stmt.bind(pa.record_batch([[41]], names=["0"]))
             try:
                 stmt.execute_query()
-            except Exception:
+            except adbc_driver_manager.OperationalError:
                 pass
 
         assert len(mock_server.captured) == 1
-        assert _query_param(mock_server.captured[0].path, "query_parameters") == ['[{"name":"$1","value":41}]']
+        assert _query_param(mock_server.captured[0].path, "query_parameters") == [
+            '[{"name":"$1","value":41}]'
+        ]
 
-    def test_executemany_sends_one_request_per_parameter_set(self, mock_server, conn_to_mock) -> None:
+    def test_executemany_sends_one_request_per_parameter_set(
+        self, mock_server, conn_to_mock
+    ) -> None:
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("INSERT INTO t VALUES ($1)")
             stmt.bind(pa.record_batch([[1, 2, 3]], names=["0"]))
             stmt.execute_update()
 
         assert len(mock_server.captured) == 3
-        sent = [_query_param(request.path, "query_parameters")[0] for request in mock_server.captured]
+        sent = [
+            _query_param(request.path, "query_parameters")[0]
+            for request in mock_server.captured
+        ]
         assert sent == [
             '[{"name":"$1","value":1}]',
             '[{"name":"$1","value":2}]',
             '[{"name":"$1","value":3}]',
         ]
 
-    def test_execute_query_runs_every_parameter_set(self, mock_server, conn_to_mock) -> None:
+    def test_execute_query_runs_every_parameter_set(
+        self, mock_server, conn_to_mock
+    ) -> None:
         """ADBC and dbapi's execute() both run multi-row Arrow data once per row,
         while always asking for a result set.  So all rows run, and the stream handed
         back is the last execution's — there being only one to hand back."""
@@ -204,13 +242,16 @@ class TestRequestBudget:
             stmt.bind(pa.record_batch([[1, 2]], names=["0"]))
             try:
                 stmt.execute_query()
-            except Exception:
+            except adbc_driver_manager.OperationalError:
                 # The mock answers 200 with an empty body, so importing the result
                 # fails; the requests are what this test is about.
                 pass
 
         assert len(mock_server.captured) == 2
-        sent = [_query_param(request.path, "query_parameters")[0] for request in mock_server.captured]
+        sent = [
+            _query_param(request.path, "query_parameters")[0]
+            for request in mock_server.captured
+        ]
         assert sent == ['[{"name":"$1","value":1}]', '[{"name":"$1","value":2}]']
 
 

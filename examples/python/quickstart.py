@@ -31,7 +31,11 @@ import pyarrow as pa
 from adbc_driver_manager import dbapi
 
 DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libadbc_driver_firebolt.so"
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "build",
+    "libadbc_driver_firebolt.so",
 )
 
 
@@ -50,18 +54,22 @@ def connection_settings() -> tuple[str, dict]:
 
 def via_dbapi(driver: str, db_kwargs: dict) -> None:
     """The PEP 249 interface: connect, cursor, execute, fetch."""
-    with dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 AS n, 'hello' AS greeting")
-            print(cur.fetch_arrow_table())
+    with (
+        dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn,
+        conn.cursor() as cur,
+    ):
+        cur.execute("SELECT 1 AS n, 'hello' AS greeting")
+        print(cur.fetch_arrow_table())
 
-            # Every result is Arrow underneath, so a plain fetchall() works too.
-            cur.execute("SELECT 2 + 3 AS sum, upper('firebolt') AS name")
-            print(cur.fetchall())
+        # Every result is Arrow underneath, so a plain fetchall() works too.
+        cur.execute("SELECT 2 + 3 AS sum, upper('firebolt') AS name")
+        print(cur.fetchall())
 
-            info = conn.adbc_get_info()
-            print(f"\nconnected to {info['vendor_name']} "
-                  f"via {info['driver_name']} {info['driver_version']}")
+        info = conn.adbc_get_info()
+        print(
+            f"\nconnected to {info['vendor_name']} "
+            f"via {info['driver_name']} {info['driver_version']}"
+        )
 
 
 def via_low_level(driver: str, db_kwargs: dict) -> None:
@@ -71,12 +79,14 @@ def via_low_level(driver: str, db_kwargs: dict) -> None:
     bind_stream live (see bulk_ingest.py), and because it hands you the Arrow
     stream directly with no copy.
     """
-    with adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db:
-        with adbc_driver_manager.AdbcConnection(db) as conn:
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query("SELECT 42 AS answer")
-                stream, _rows = stmt.execute_query()
-                print(pa.RecordBatchReader.from_stream(stream).read_all())
+    with (
+        adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db,
+        adbc_driver_manager.AdbcConnection(db) as conn,
+        adbc_driver_manager.AdbcStatement(conn) as stmt,
+    ):
+        stmt.set_sql_query("SELECT 42 AS answer")
+        stream, _rows = stmt.execute_query()
+        print(pa.RecordBatchReader.from_stream(stream).read_all())
 
 
 def main() -> None:

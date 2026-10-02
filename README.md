@@ -123,8 +123,8 @@ searches (`~/.config/adbc/drivers`, `/etc/adbc/drivers`, or anything on
 ```python
 cur.execute("SELECT * FROM my_table")
 
-table = cur.fetch_arrow_table()   # pyarrow.Table
-df = cur.fetch_df()               # pandas.DataFrame
+table = cur.fetch_arrow_table()  # pyarrow.Table
+df = cur.fetch_df()  # pandas.DataFrame
 ```
 
 For a result larger than memory, stream it in batches instead:
@@ -144,11 +144,13 @@ the `CREATE TABLE` the driver generates for you:
 ```python
 import pyarrow as pa
 
-table = pa.table({
-    "id":   pa.array([1, 2], pa.int32()),
-    "tags": pa.array([["a", "b"], ["c"]], pa.list_(pa.string())),
-    "meta": pa.array([{"k": 1}, {"k": 2}], pa.struct([("k", pa.int32())])),
-})
+table = pa.table(
+    {
+        "id": pa.array([1, 2], pa.int32()),
+        "tags": pa.array([["a", "b"], ["c"]], pa.list_(pa.string())),
+        "meta": pa.array([{"k": 1}, {"k": 2}], pa.struct([("k", pa.int32())])),
+    }
+)
 
 with dbapi.connect(driver=DRIVER, db_kwargs={"uri": URI}, autocommit=True) as conn:
     with conn.cursor() as cur:
@@ -169,7 +171,7 @@ are in a transaction whether or not you asked for one and the driver issues
 with dbapi.connect(driver=DRIVER, db_kwargs={"uri": URI}, autocommit=False) as conn:
     cur = conn.cursor()
     cur.execute("INSERT INTO events VALUES (1, 'a')")
-    conn.commit()   # or conn.rollback()
+    conn.commit()  # or conn.rollback()
 ```
 
 Pass `autocommit=True` for each statement to stand on its own.
@@ -182,7 +184,7 @@ substitutes them into the parsed statement, so a value containing quotes or SQL
 keywords is data.
 
 ```python
-cur.execute("SELECT $1 + 1", (41,))                     # → 42
+cur.execute("SELECT $1 + 1", (41,))  # → 42
 cur.execute("SELECT id FROM events WHERE label = $1", ("a'; DROP TABLE events; --",))
 cur.executemany("INSERT INTO events VALUES ($1, $2)", [(1, "a"), (2, "b")])
 ```
@@ -208,16 +210,16 @@ is reordered <sup>[17](#fn17)</sup>.
 running the statement:
 
 ```python
-cur.adbc_prepare("SELECT label FROM events WHERE id = $1")   # → schema: $1: int32
+cur.adbc_prepare("SELECT label FROM events WHERE id = $1")  # → schema: $1: int32
 ```
 
 ### Metadata
 
 ```python
-conn.adbc_get_info()                              # driver and vendor identity
-conn.adbc_get_table_types()                       # e.g. BASE TABLE, VIEW
-conn.adbc_get_table_schema("events")              # pyarrow.Schema
-conn.adbc_get_objects(depth="columns")            # catalogs → schemas → tables → columns
+conn.adbc_get_info()  # driver and vendor identity
+conn.adbc_get_table_types()  # e.g. BASE TABLE, VIEW
+conn.adbc_get_table_schema("events")  # pyarrow.Schema
+conn.adbc_get_objects(depth="columns")  # catalogs → schemas → tables → columns
 ```
 
 ## Feature & Type Support

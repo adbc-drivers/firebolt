@@ -20,9 +20,6 @@ window functions — verifying that the driver correctly handles multi-step
 queries that return non-trivial result shapes.
 """
 
-import pyarrow as pa
-import pytest
-
 
 class TestJoins:
     def test_inner_join(self, run_query, table_name) -> None:
@@ -72,9 +69,7 @@ class TestJoins:
 
     def test_self_join(self, run_query, table_name) -> None:
         run_query(f"CREATE TABLE {table_name} (id INT, parent_id INT)")
-        run_query(
-            f"INSERT INTO {table_name} VALUES (1, NULL), (2, 1), (3, 1), (4, 2)"
-        )
+        run_query(f"INSERT INTO {table_name} VALUES (1, NULL), (2, 1), (3, 1), (4, 2)")
         t = run_query(
             f"SELECT c.id AS child, p.id AS parent "
             f"FROM {table_name} c JOIN {table_name} p ON c.parent_id = p.id "
@@ -129,15 +124,11 @@ class TestCaseExpression:
         assert t["x"][0].as_py() == "two"
 
     def test_searched_case(self, run_query) -> None:
-        t = run_query(
-            "SELECT CASE WHEN 5 > 3 THEN 'yes' ELSE 'no' END AS x"
-        )
+        t = run_query("SELECT CASE WHEN 5 > 3 THEN 'yes' ELSE 'no' END AS x")
         assert t["x"][0].as_py() == "yes"
 
     def test_case_with_null(self, run_query) -> None:
-        t = run_query(
-            "SELECT CASE WHEN NULL THEN 'yes' ELSE 'no' END AS x"
-        )
+        t = run_query("SELECT CASE WHEN NULL THEN 'yes' ELSE 'no' END AS x")
         assert t["x"][0].as_py() == "no"
 
     def test_case_in_aggregate(self, run_query, temp_table) -> None:
@@ -217,10 +208,7 @@ class TestSubqueries:
         run_query(f"DROP TABLE {right}")
 
     def test_derived_table(self, run_query) -> None:
-        t = run_query(
-            "SELECT sub.x * 2 AS y "
-            "FROM (SELECT 21 AS x) sub"
-        )
+        t = run_query("SELECT sub.x * 2 AS y FROM (SELECT 21 AS x) sub")
         assert t["y"][0].as_py() == 42
 
     def test_exists_subquery(self, run_query, table_name) -> None:

@@ -23,17 +23,17 @@ template <typename Fn>
 class ScopeGuard
 {
 public:
-    explicit ScopeGuard(Fn && fn) : fn_(std::move(fn)) { }
+    explicit ScopeGuard(Fn && f) : fn(std::move(f)) { }
 
     ScopeGuard(const ScopeGuard &) = delete;
     ScopeGuard & operator=(const ScopeGuard &) = delete;
     ScopeGuard(ScopeGuard &&) = delete;
     ScopeGuard & operator=(ScopeGuard &&) = delete;
 
-    ~ScopeGuard() { fn_(); }
+    ~ScopeGuard() { fn(); }
 
 private:
-    Fn fn_;
+    Fn fn;
 };
 
 } // namespace firebolt::adbc

@@ -39,17 +39,17 @@ namespace
 
 } // namespace
 
-HttpClient::HttpClient(const FireboltConnection & conn) : fb_conn_(conn)
+HttpClient::HttpClient(const FireboltConnection & conn) : fb_conn(conn)
 {
-    handle_ = curl_easy_init();
-    if (!handle_)
+    handle = curl_easy_init();
+    if (!handle)
         throw std::runtime_error("Failed to initialize curl handle");
 }
 
 HttpClient::~HttpClient()
 {
-    if (handle_)
-        curl_easy_cleanup(handle_);
+    if (handle)
+        curl_easy_cleanup(handle);
 }
 
 size_t HttpClient::writeBodyCallback(char * ptr, size_t size, size_t nmemb, void * userdata)
@@ -64,20 +64,20 @@ std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::stri
 {
     // Use the endpoint URL verbatim — do not append a trailing slash so that
     // paths specified by the user (e.g. "http://host/query") are preserved.
-    std::string url = fb_conn_.db->url;
+    std::string url = fb_conn.db->url;
 
     bool first = (url.find('?') == std::string::npos);
-    auto addParam = [&](const std::string & k, const std::string & v) {
+    auto add_param = [&](const std::string & k, const std::string & v) {
         url += (first ? '?' : '&');
         first = false;
-        url += k + "=" + urlEncode(handle_, v);
+        url += k + "=" + urlEncode(handle, v);
     };
 
-    if (!fb_conn_.db->database.empty())
-        addParam("database", fb_conn_.db->database);
+    if (!fb_conn.db->database.empty())
+        add_param("database", fb_conn.db->database);
 
     for (const auto & [k, v] : session_params)
-        addParam(k, v);
+        add_param(k, v);
 
     return url;
 }
@@ -85,9 +85,9 @@ std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::stri
 curl_slist * HttpClient::buildAuthHeader() const
 {
     curl_slist * headers = nullptr;
-    if (!fb_conn_.token.empty())
+    if (!fb_conn.token.empty())
     {
-        std::string auth = "Authorization: Bearer " + fb_conn_.token;
+        std::string auth = "Authorization: Bearer " + fb_conn.token;
         headers = curl_slist_append(headers, auth.c_str());
     }
     headers = curl_slist_append(headers, "Firebolt-Protocol-Version: 2.4");
@@ -98,15 +98,15 @@ void HttpClient::applyTlsOptions() const
 {
     // Peer and host verification are libcurl's defaults and stay on; this only
     // says which CA bundle backs them.  Empty for http://.
-    if (!fb_conn_.db->ca_bundle_path.empty())
-        curl_easy_setopt(handle_, CURLOPT_CAINFO, fb_conn_.db->ca_bundle_path.c_str());
+    if (!fb_conn.db->ca_bundle_path.empty())
+        curl_easy_setopt(handle, CURLOPT_CAINFO, fb_conn.db->ca_bundle_path.c_str());
 }
 
 void HttpClient::parseResponseHeaders(HttpResponse & resp) const
 {
-    resp.reset_session = shouldResetSession(handle_);
-    resp.update_params = parseUpdateParameters(handle_);
-    resp.remove_params = parseRemoveParameters(handle_);
+    resp.reset_session = shouldResetSession(handle);
+    resp.update_params = parseUpdateParameters(handle);
+    resp.remove_params = parseRemoveParameters(handle);
 }
 
 HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
@@ -118,25 +118,25 @@ HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unorde
     url += (url.find('?') == std::string::npos ? '?' : '&');
     url += "output_format=ArrowStream";
 
-    curl_easy_reset(handle_);
-    curl_easy_setopt(handle_, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(handle_, CURLOPT_POST, 1L);
-    curl_easy_setopt(handle_, CURLOPT_POSTFIELDS, sql.c_str());
-    curl_easy_setopt(handle_, CURLOPT_POSTFIELDSIZE, static_cast<long>(sql.size()));
-    curl_easy_setopt(handle_, CURLOPT_WRITEFUNCTION, writeBodyCallback);
-    curl_easy_setopt(handle_, CURLOPT_WRITEDATA, &resp.body);
-    curl_easy_setopt(handle_, CURLOPT_TIMEOUT, fb_conn_.db->timeout_sec);
+    curl_easy_reset(handle);
+    curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(handle, CURLOPT_POST, 1L);
+    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, sql.c_str());
+    curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(sql.size()));
+    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, writeBodyCallback);
+    curl_easy_setopt(handle, CURLOPT_WRITEDATA, &resp.body);
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
     applyTlsOptions();
 
     curl_slist * auth_headers = buildAuthHeader();
     // Content-Type: text/plain so the server knows body is raw SQL
     auth_headers = curl_slist_append(auth_headers, "Content-Type: text/plain; charset=utf-8");
-    curl_easy_setopt(handle_, CURLOPT_HTTPHEADER, auth_headers);
+    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, auth_headers);
 
-    resp.curl_code = curl_easy_perform(handle_);
+    resp.curl_code = curl_easy_perform(handle);
     curl_slist_free_all(auth_headers);
 
-    curl_easy_getinfo(handle_, CURLINFO_RESPONSE_CODE, &resp.http_code);
+    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
 
     if (resp.curl_code != CURLE_OK)
         resp.error_message = curl_easy_strerror(resp.curl_code);
@@ -156,19 +156,19 @@ HttpResponse HttpClient::executeInsert(
 
     std::string url = buildUrl(session_params);
 
-    curl_easy_reset(handle_);
-    curl_easy_setopt(handle_, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(handle_, CURLOPT_WRITEFUNCTION, writeBodyCallback);
-    curl_easy_setopt(handle_, CURLOPT_WRITEDATA, &resp.body);
-    curl_easy_setopt(handle_, CURLOPT_TIMEOUT, fb_conn_.db->timeout_sec);
+    curl_easy_reset(handle);
+    curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, writeBodyCallback);
+    curl_easy_setopt(handle, CURLOPT_WRITEDATA, &resp.body);
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
     applyTlsOptions();
 
     // Set auth header
     curl_slist * auth_headers = buildAuthHeader();
-    curl_easy_setopt(handle_, CURLOPT_HTTPHEADER, auth_headers);
+    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, auth_headers);
 
     // Build multipart/form-data using curl_mime
-    curl_mime * mime = curl_mime_init(handle_);
+    curl_mime * mime = curl_mime_init(handle);
 
     // SQL part
     curl_mimepart * sql_part = curl_mime_addpart(mime);
@@ -183,13 +183,13 @@ HttpResponse HttpClient::executeInsert(
     curl_mime_type(arrow_part, "application/octet-stream");
     curl_mime_data(arrow_part, reinterpret_cast<const char *>(arrow_ipc_bytes.data()), arrow_ipc_bytes.size());
 
-    curl_easy_setopt(handle_, CURLOPT_MIMEPOST, mime);
+    curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
-    resp.curl_code = curl_easy_perform(handle_);
+    resp.curl_code = curl_easy_perform(handle);
     curl_slist_free_all(auth_headers);
     curl_mime_free(mime);
 
-    curl_easy_getinfo(handle_, CURLINFO_RESPONSE_CODE, &resp.http_code);
+    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
 
     if (resp.curl_code != CURLE_OK)
         resp.error_message = curl_easy_strerror(resp.curl_code);

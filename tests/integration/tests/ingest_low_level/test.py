@@ -25,13 +25,14 @@ The canonical/public-API tests (cursor.adbc_ingest) live in tests/ingest/.
 
 from decimal import Decimal
 
+import adbc_driver_manager
 import pyarrow as pa
 import pytest
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
+
 
 def _row_count(run_query, table_name):
     return run_query(f"SELECT COUNT(*) AS n FROM {table_name}")["n"][0].as_py()
@@ -41,29 +42,34 @@ def _row_count(run_query, table_name):
 # Mode: append                                                                #
 # --------------------------------------------------------------------------- #
 
+
 class TestAppendMode:
     def test_append_basic(self, ingest, run_query, temp_table) -> None:
-        tbl = pa.table({
-            "id": pa.array([1, 2, 3], type=pa.int32()),
-            "label": ["alpha", "beta", "gamma"],
-            "value": [1.5, 2.5, 3.5],
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2, 3], type=pa.int32()),
+                "label": ["alpha", "beta", "gamma"],
+                "value": [1.5, 2.5, 3.5],
+            }
+        )
         ingest(temp_table, tbl, "adbc.ingest.mode.append")
         assert _row_count(run_query, temp_table) == 3
 
     def test_append_extends_existing(self, ingest, run_query, temp_table) -> None:
         run_query(f"INSERT INTO {temp_table} VALUES (0, 'pre', 0.0)")
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "label": ["a", "b"],
-            "value": [1.0, 2.0],
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "label": ["a", "b"],
+                "value": [1.0, 2.0],
+            }
+        )
         ingest(temp_table, tbl, "adbc.ingest.mode.append")
         assert _row_count(run_query, temp_table) == 3
 
     def test_append_into_missing_table_fails(self, ingest, table_name) -> None:
         tbl = pa.table({"x": pa.array([1, 2], type=pa.int32())})
-        with pytest.raises(Exception):
+        with pytest.raises(adbc_driver_manager.ProgrammingError):
             ingest(table_name, tbl, "adbc.ingest.mode.append")
 
 
@@ -71,13 +77,16 @@ class TestAppendMode:
 # Mode: create                                                                #
 # --------------------------------------------------------------------------- #
 
+
 class TestCreateMode:
     def test_create_new_table(self, ingest, run_query, table_name) -> None:
         try:
-            tbl = pa.table({
-                "id": pa.array([10, 20], type=pa.int32()),
-                "name": ["foo", "bar"],
-            })
+            tbl = pa.table(
+                {
+                    "id": pa.array([10, 20], type=pa.int32()),
+                    "name": ["foo", "bar"],
+                }
+            )
             ingest(table_name, tbl, "adbc.ingest.mode.create")
             t = run_query(f"SELECT id, name FROM {table_name} ORDER BY id")
             assert t["id"].to_pylist() == [10, 20]
@@ -87,12 +96,14 @@ class TestCreateMode:
 
     def test_create_existing_table_fails(self, ingest, run_query, temp_table) -> None:
         # temp_table fixture already created the table — create mode must fail.
-        tbl = pa.table({
-            "id": pa.array([1], type=pa.int32()),
-            "label": ["x"],
-            "value": [1.0],
-        })
-        with pytest.raises(Exception):
+        tbl = pa.table(
+            {
+                "id": pa.array([1], type=pa.int32()),
+                "label": ["x"],
+                "value": [1.0],
+            }
+        )
+        with pytest.raises(adbc_driver_manager.ProgrammingError):
             ingest(temp_table, tbl, "adbc.ingest.mode.create")
 
 
@@ -100,14 +111,17 @@ class TestCreateMode:
 # Mode: replace                                                               #
 # --------------------------------------------------------------------------- #
 
+
 class TestReplaceMode:
     def test_replace_drops_and_recreates(self, ingest, run_query, temp_table) -> None:
         run_query(f"INSERT INTO {temp_table} VALUES (99, 'old', 99.0)")
         # New schema differs — replace must DROP first.
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "tag": ["new1", "new2"],
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "tag": ["new1", "new2"],
+            }
+        )
         ingest(temp_table, tbl, "adbc.ingest.mode.replace")
         t = run_query(f"SELECT id, tag FROM {temp_table} ORDER BY id")
         assert t.column_names == ["id", "tag"]
@@ -127,13 +141,16 @@ class TestReplaceMode:
 # Mode: create_append                                                         #
 # --------------------------------------------------------------------------- #
 
+
 class TestCreateAppendMode:
     def test_create_append_new_table(self, ingest, run_query, table_name) -> None:
         try:
-            tbl = pa.table({
-                "id": pa.array([1, 2, 3], type=pa.int32()),
-                "v": pa.array([10, 20, 30], type=pa.int32()),
-            })
+            tbl = pa.table(
+                {
+                    "id": pa.array([1, 2, 3], type=pa.int32()),
+                    "v": pa.array([10, 20, 30], type=pa.int32()),
+                }
+            )
             ingest(table_name, tbl, "adbc.ingest.mode.create_append")
             assert _row_count(run_query, table_name) == 3
         finally:
@@ -141,11 +158,13 @@ class TestCreateAppendMode:
 
     def test_create_append_existing_table(self, ingest, run_query, temp_table) -> None:
         run_query(f"INSERT INTO {temp_table} VALUES (1, 'pre', 0.0)")
-        tbl = pa.table({
-            "id": pa.array([2, 3], type=pa.int32()),
-            "label": ["a", "b"],
-            "value": [1.0, 2.0],
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([2, 3], type=pa.int32()),
+                "label": ["a", "b"],
+                "value": [1.0, 2.0],
+            }
+        )
         ingest(temp_table, tbl, "adbc.ingest.mode.create_append")
         assert _row_count(run_query, temp_table) == 3
 
@@ -153,6 +172,7 @@ class TestCreateAppendMode:
 # --------------------------------------------------------------------------- #
 # Type coverage for create modes                                              #
 # --------------------------------------------------------------------------- #
+
 
 class TestCreateModeTypes:
     """The CREATE TABLE DDL is synthesised from the bound Arrow schema, so each
@@ -166,36 +186,48 @@ class TestCreateModeTypes:
             run_query(f"DROP TABLE IF EXISTS {table_name}")
 
     def test_int_and_string(self, ingest, run_query, table_name) -> None:
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "name": ["alpha", "beta"],
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "name": ["alpha", "beta"],
+            }
+        )
         self._ingest_and_drop(ingest, run_query, table_name, tbl)
 
     def test_int64_and_double(self, ingest, run_query, table_name) -> None:
-        tbl = pa.table({
-            "id": pa.array([2**40, 2**41], type=pa.int64()),
-            "v": pa.array([1.5, 2.5], type=pa.float64()),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([2**40, 2**41], type=pa.int64()),
+                "v": pa.array([1.5, 2.5], type=pa.float64()),
+            }
+        )
         self._ingest_and_drop(ingest, run_query, table_name, tbl)
 
     def test_bool(self, ingest, run_query, table_name) -> None:
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "flag": pa.array([True, False], type=pa.bool_()),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "flag": pa.array([True, False], type=pa.bool_()),
+            }
+        )
         self._ingest_and_drop(ingest, run_query, table_name, tbl)
 
     def test_decimal(self, ingest, run_query, table_name) -> None:
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "amount": pa.array([Decimal("1.23"), Decimal("4.56")], type=pa.decimal128(10, 2)),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "amount": pa.array(
+                    [Decimal("1.23"), Decimal("4.56")], type=pa.decimal128(10, 2)
+                ),
+            }
+        )
         self._ingest_and_drop(ingest, run_query, table_name, tbl)
 
     def test_array(self, ingest, run_query, table_name) -> None:
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "tags": pa.array([[1, 2, 3], [4]], type=pa.list_(pa.int32())),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "tags": pa.array([[1, 2, 3], [4]], type=pa.list_(pa.int32())),
+            }
+        )
         self._ingest_and_drop(ingest, run_query, table_name, tbl)

@@ -116,7 +116,9 @@ class TestParameterValues:
 
     def test_sql_syntax_in_a_value_is_data(self, cursor, temp_table) -> None:
         cursor.execute(f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0)")
-        cursor.execute(f"SELECT label FROM {temp_table} WHERE label = $1", ("'; DROP TABLE t; --",))
+        cursor.execute(
+            f"SELECT label FROM {temp_table} WHERE label = $1", ("'; DROP TABLE t; --",)
+        )
         assert cursor.fetchall() == []
         # The table is still there, which it would not be if the value had been
         # spliced into the statement text.
@@ -128,7 +130,8 @@ class TestParameterValues:
         assert cursor.fetchone()[0] == datetime.date(2024, 1, 5)
 
     def test_timestamp_parameter(self, cursor) -> None:
-        value = datetime.datetime(2024, 1, 5, 6, 7, 8, 123456)
+        # Naive on purpose: TIMESTAMP has no time zone.
+        value = datetime.datetime(2024, 1, 5, 6, 7, 8, 123456)  # noqa: DTZ001
         cursor.execute("SELECT $1::TIMESTAMP AS v", (value,))
         assert cursor.fetchone()[0] == value
 
@@ -161,12 +164,16 @@ class TestParameterValues:
 
 class TestParametersAgainstTables:
     def test_filter_on_an_integer_column(self, cursor, temp_table) -> None:
-        cursor.execute(f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)")
+        cursor.execute(
+            f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)"
+        )
         cursor.execute(f"SELECT label FROM {temp_table} WHERE id = $1", (2,))
         assert cursor.fetchall() == [("bob",)]
 
     def test_filter_on_a_text_column(self, cursor, temp_table) -> None:
-        cursor.execute(f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)")
+        cursor.execute(
+            f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)"
+        )
         cursor.execute(f"SELECT id FROM {temp_table} WHERE label = $1", ("alice",))
         assert cursor.fetchall() == [(1,)]
 
@@ -176,7 +183,9 @@ class TestParametersAgainstTables:
         assert cursor.fetchall() == []
 
     def test_parameterised_insert(self, cursor, temp_table) -> None:
-        cursor.execute(f"INSERT INTO {temp_table} VALUES ($1, $2, $3)", (10, "dave", 8.5))
+        cursor.execute(
+            f"INSERT INTO {temp_table} VALUES ($1, $2, $3)", (10, "dave", 8.5)
+        )
         cursor.execute(f"SELECT id, label, value FROM {temp_table} WHERE id = 10")
         assert cursor.fetchone() == (10, "dave", pytest.approx(8.5))
 
@@ -186,7 +195,9 @@ class TestParametersAgainstTables:
         cursor.execute(f"SELECT id, label FROM {temp_table} ORDER BY id")
         assert cursor.fetchall() == [(i, f"row{i}") for i in range(5)]
 
-    def test_execute_with_multi_row_arrow_data_runs_every_row(self, cursor, temp_table) -> None:
+    def test_execute_with_multi_row_arrow_data_runs_every_row(
+        self, cursor, temp_table
+    ) -> None:
         # dbapi's execute() documents that multi-row Arrow data means "multiple
         # parameters, which will each be bound in turn" — and it always asks for a
         # result set, so this must not be refused for wanting one.
@@ -211,15 +222,21 @@ class TestParametersAgainstTables:
         )
         assert cursor.fetchone() == ("hello", 41)
 
-    def test_executemany_with_no_parameter_sets_does_nothing(self, cursor, temp_table) -> None:
+    def test_executemany_with_no_parameter_sets_does_nothing(
+        self, cursor, temp_table
+    ) -> None:
         cursor.executemany(f"INSERT INTO {temp_table} VALUES ($1, $2, $3)", [])
         cursor.execute(f"SELECT count(*) FROM {temp_table}")
         assert cursor.fetchone()[0] == 0
 
     def test_statement_reuse_with_different_values(self, cursor, temp_table) -> None:
-        cursor.execute(f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0), (3, 'carol', 3.0)")
+        cursor.execute(
+            f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0), (3, 'carol', 3.0)"
+        )
         for expected_id, expected_label in [(1, "alice"), (2, "bob"), (3, "carol")]:
-            cursor.execute(f"SELECT label FROM {temp_table} WHERE id = $1", (expected_id,))
+            cursor.execute(
+                f"SELECT label FROM {temp_table} WHERE id = $1", (expected_id,)
+            )
             assert cursor.fetchone()[0] == expected_label
 
 
@@ -252,7 +269,9 @@ class TestNamedParameters:
         cursor.execute("SELECT param('who') AS v", {"who": "carol"})
         assert cursor.fetchone()[0] == "carol"
 
-    def test_positional_still_works_after_a_named_call(self, cursor, temp_table) -> None:
+    def test_positional_still_works_after_a_named_call(
+        self, cursor, temp_table
+    ) -> None:
         # dbapi sends bind_by_name once per cursor and never revises it when
         # parameters arrive as Arrow data, so it is still set here.  It must not leave
         # the `$N` placeholders unbound.
@@ -267,7 +286,9 @@ class TestNamedParameters:
         assert cursor.fetchall() == [(1, "x"), (2, "y")]
 
     def test_several_named_parameters(self, cursor, temp_table) -> None:
-        cursor.execute(f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)")
+        cursor.execute(
+            f"INSERT INTO {temp_table} VALUES (1, 'alice', 1.0), (2, 'bob', 2.0)"
+        )
         cursor.execute(
             f"SELECT id FROM {temp_table} WHERE label = param('who') AND id < param('lt')::INT",
             {"who": "alice", "lt": 2},

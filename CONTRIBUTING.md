@@ -22,6 +22,9 @@ Docker and git. That is all — the toolchain, the compiler, and every dependenc
 live inside a builder image or a git submodule, so nothing needs installing on
 the host.
 
+For the linters, also [pre-commit](https://pre-commit.com/), Python 3.14 and a
+Java runtime (the license check runs Apache RAT); see [Linting](#linting).
+
 ## Build and test
 
 The three scripts under `scripts/` are the canonical entry points. CI runs the
@@ -40,6 +43,28 @@ All three are idempotent and can be run from anywhere in the repository.
 on first use. The image is Ubuntu 22.04 + clang-18; the older glibc is
 deliberate, so the resulting `.so` loads on distributions older than your host.
 Delete the image (`docker rmi firebolt-adbc-builder:latest`) to force a rebuild.
+
+### Linting
+
+[pre-commit](https://pre-commit.com/) runs the linters configured in
+`.pre-commit-config.yaml`: clang-format, clang-tidy, ruff, shellcheck, codespell,
+whitespace and YAML checks, and the Foundry's license-header check (`rat`).
+
+```bash
+pre-commit install              # run the hooks on every git commit
+pre-commit run --all-files      # or run them all by hand
+./scripts/clang-tidy.sh         # clang-tidy alone, over all of src/ and tests/unit/
+```
+
+clang-tidy reads `build/compile_commands.json` and runs inside the builder
+image, so it needs a `./scripts/build.sh` first. If the image was built before
+clang-tidy was added to it, delete it and re-run the build. Its checks, in
+`.clang-tidy`, are adapted from packdb's, and every warning is an error.
+`SKIP=clang-tidy git commit` skips it when there is no build at hand; CI runs it
+regardless.
+
+A file that cannot carry a header (JSON) is listed in `.rat-excludes`; a file
+taken from an Apache project is listed in `.rat-apache`.
 
 ### Running a subset of the tests
 
@@ -83,13 +108,14 @@ Delete `build/` and re-run.
 
 ## Conventions
 
-- **Format C++ with the repository's `.clang-format`** before sending a change.
+- **Keep `pre-commit run --all-files` clean.** It formats C++ (`.clang-format`)
+  and Python (ruff), and CI fails a PR that it would change.
 - **Every new file starts with the Apache 2.0 header** — `Copyright (c) 2026 ADBC
   Drivers Contributors` and the standard notice, in the file's comment syntax
-  (copy it from a neighbour). Vendored files such as `adbc.h` keep their own
-  header; a file migrated from another Apache-licensed project adds "This file
-  has been modified from its original version, which is under the Apache
-  License" below it.
+  (copy it from a neighbour). A file taken from another Apache-licensed project,
+  such as the vendored `adbc.h`, keeps its ASF header below the copyright line
+  and a "This file has been modified from its original version, which is under
+  the Apache License:" line, and is listed in `.rat-apache`.
 - **No dependency discovery in CMake.** No `find_package`, `find_library`,
   `find_path`, `find_program`, or `FetchContent` for required dependencies —
   everything must exist under `submodule/`. See [CLAUDE.md](CLAUDE.md) for why.
@@ -147,6 +173,6 @@ make specific claims, and a stale claim is worse than no claim:
 
 ## Pull requests
 
-`enable-merge-to-main.yaml` runs build, unit tests, integration tests, and the
-examples smoke check on every PR, with a merge gate that requires all of it to
+`enable-merge-to-main.yaml` runs the pre-commit hooks, build, clang-tidy, unit
+tests, integration tests, and the examples smoke check on every PR, with a merge gate that requires all of it to
 pass.

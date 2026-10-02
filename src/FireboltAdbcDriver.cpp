@@ -35,8 +35,8 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
-#include <strings.h>
 #include <variant>
+#include <strings.h>
 
 #include <curl/curl.h>
 

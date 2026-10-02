@@ -32,7 +32,11 @@ import os
 from adbc_driver_manager import dbapi
 
 DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libadbc_driver_firebolt.so"
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "build",
+    "libadbc_driver_firebolt.so",
 )
 
 TABLE = "adbc_example_params"
@@ -56,7 +60,9 @@ def positional(cur) -> None:
 
     # Each value keeps its type: an integer arrives as BIGINT, a float as DOUBLE, a
     # bool as BOOLEAN, None as an untyped NULL.
-    cur.execute("SELECT $1 AS i, $2 AS f, $3 AS b, $4 IS NULL AS n", (7, 1.5, True, None))
+    cur.execute(
+        "SELECT $1 AS i, $2 AS f, $3 AS b, $4 IS NULL AS n", (7, 1.5, True, None)
+    )
     print("types preserved:      ", cur.fetch_arrow_table().schema.types)
 
     # The same placeholder can be used more than once.
@@ -86,7 +92,9 @@ def text_typed_values(cur) -> None:
     cur.execute("SELECT $1::DATE AS d", (datetime.date(2024, 1, 5),))
     print("date:                 ", cur.fetchone()[0])
 
-    cur.execute("SELECT $1::TIMESTAMP AS ts", (datetime.datetime(2024, 1, 5, 6, 7, 8, 123456),))
+    # A naive datetime: TIMESTAMP carries no time zone (TIMESTAMPTZ would).
+    ts = datetime.datetime(2024, 1, 5, 6, 7, 8, 123456)  # noqa: DTZ001
+    cur.execute("SELECT $1::TIMESTAMP AS ts", (ts,))
     print("timestamp:            ", cur.fetchone()[0])
 
     exact = decimal.Decimal("-12345678901234567890.123456789")
@@ -141,30 +149,32 @@ def main() -> None:
     driver, db_kwargs = connection_settings()
     print(f"driver: {driver}\nuri:    {db_kwargs['uri']}\n")
 
-    with dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn:
-        with conn.cursor() as cur:
+    with (
+        dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn,
+        conn.cursor() as cur,
+    ):
+        cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
+        cur.execute(f"CREATE TABLE {TABLE} (id INT, label TEXT)")
+        try:
+            print("=== positional parameters ===")
+            positional(cur)
+
+            print("\n=== values are never spliced into the SQL ===")
+            not_string_formatting(cur)
+
+            print("\n=== dates, timestamps, decimals ===")
+            text_typed_values(cur)
+
+            print("\n=== named parameters ===")
+            named(cur)
+
+            print("\n=== one execution per parameter set ===")
+            many_rows(cur)
+
+            print("\n=== parameter schema ===")
+            parameter_schema(cur)
+        finally:
             cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
-            cur.execute(f"CREATE TABLE {TABLE} (id INT, label TEXT)")
-            try:
-                print("=== positional parameters ===")
-                positional(cur)
-
-                print("\n=== values are never spliced into the SQL ===")
-                not_string_formatting(cur)
-
-                print("\n=== dates, timestamps, decimals ===")
-                text_typed_values(cur)
-
-                print("\n=== named parameters ===")
-                named(cur)
-
-                print("\n=== one execution per parameter set ===")
-                many_rows(cur)
-
-                print("\n=== parameter schema ===")
-                parameter_schema(cur)
-            finally:
-                cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
 
 
 if __name__ == "__main__":

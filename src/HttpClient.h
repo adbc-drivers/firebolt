@@ -102,8 +102,8 @@ public:
         const std::unordered_map<std::string, std::string> & session_params);
 
 private:
-    CURL * handle_ = nullptr;
-    const FireboltConnection & fb_conn_;
+    CURL * handle = nullptr;
+    const FireboltConnection & fb_conn;
 
     std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
     curl_slist * buildAuthHeader() const;

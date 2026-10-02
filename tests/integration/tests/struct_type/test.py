@@ -45,11 +45,11 @@ import pyarrow as pa
 import pytest
 from adbc_driver_manager import dbapi
 
-
 # --------------------------------------------------------------------------- #
 # Helpers  (`conn`, `run_query`, `ingest`, `cursor` and `scratch_table` come   #
 # from conftest.py)                                                           #
 # --------------------------------------------------------------------------- #
+
 
 def _column_types(run_query, table_name):
     """{column_name: Firebolt type text} for a table, straight from the catalog.
@@ -66,19 +66,26 @@ def _column_types(run_query, table_name):
 
 # Reused shapes.  Field/element nullability is pyarrow's default (nullable).
 _FLAT = pa.struct([("a", pa.int32()), ("b", pa.string())])
-_NESTED = pa.struct([("x", pa.int32()), ("child", pa.struct([("y", pa.int64()), ("z", pa.string())]))])
+_NESTED = pa.struct(
+    [("x", pa.int32()), ("child", pa.struct([("y", pa.int64()), ("z", pa.string())]))]
+)
 _ARR_STRUCT = pa.list_(pa.struct([("k", pa.int32()), ("v", pa.string())]))
 # ARRAY(STRUCT(a ARRAY(STRUCT(leaf INT)), b STRUCT(xs ARRAY(INT)))) — alternation
 # in both directions inside one column.
-_ALTERNATING = pa.list_(pa.struct([
-    ("a", pa.list_(pa.struct([("leaf", pa.int32())]))),
-    ("b", pa.struct([("xs", pa.list_(pa.int32()))])),
-]))
+_ALTERNATING = pa.list_(
+    pa.struct(
+        [
+            ("a", pa.list_(pa.struct([("leaf", pa.int32())]))),
+            ("b", pa.struct([("xs", pa.list_(pa.int32()))])),
+        ]
+    )
+)
 
 
 # --------------------------------------------------------------------------- #
 # Retrieval: SQL STRUCT → Arrow struct                                        #
 # --------------------------------------------------------------------------- #
+
 
 class TestStructRetrievalShapes:
     """Arrow type reconstruction for each nesting shape, read straight off a
@@ -103,7 +110,9 @@ class TestStructRetrievalShapes:
         assert t["s"][0].as_py() == {"x": 10, "child": {"y": 20, "z": "y"}}
 
     def test_struct_with_array_field(self, run_query) -> None:
-        t = run_query("SELECT struct([1, 2, 3], 'w')::struct(xs ARRAY(INT), name TEXT) AS s")
+        t = run_query(
+            "SELECT struct([1, 2, 3], 'w')::struct(xs ARRAY(INT), name TEXT) AS s"
+        )
         assert pa.types.is_list(t.schema.field("s").type.field("xs").type)
         assert t["s"][0].as_py() == {"xs": [1, 2, 3], "name": "w"}
 
@@ -117,7 +126,9 @@ class TestStructRetrievalShapes:
         assert t["arr"][0].as_py() == [{"k": 1, "v": "a"}, {"k": 2, "v": "b"}]
 
     def test_array_of_array_of_structs(self, run_query) -> None:
-        t = run_query("SELECT [[struct(1)::struct(m INT)], [struct(2)::struct(m INT)]] AS arr")
+        t = run_query(
+            "SELECT [[struct(1)::struct(m INT)], [struct(2)::struct(m INT)]] AS arr"
+        )
         typ = t.schema.field("arr").type
         assert pa.types.is_list(typ.value_type)
         assert pa.types.is_struct(typ.value_type.value_type)
@@ -181,7 +192,9 @@ class TestStructRetrievalExpressions:
         assert t["k"].to_pylist() == [1, 2]
         assert t["v"].to_pylist() == ["a", "b"]
 
-    def test_aggregate_and_filter_over_struct_fields(self, run_query, scratch_table) -> None:
+    def test_aggregate_and_filter_over_struct_fields(
+        self, run_query, scratch_table
+    ) -> None:
         run_query(f"CREATE TABLE {scratch_table} (id INT, s STRUCT(a INT, b TEXT))")
         run_query(
             f"INSERT INTO {scratch_table} VALUES "
@@ -189,11 +202,15 @@ class TestStructRetrievalExpressions:
             "(2, struct(NULL, 'y')::struct(a INT, b TEXT)), "
             "(3, NULL::struct(a INT, b TEXT))"
         )
-        agg = run_query(f"SELECT count(*) AS n, count(s.a) AS n_a, sum(s.a) AS total FROM {scratch_table}")
+        agg = run_query(
+            f"SELECT count(*) AS n, count(s.a) AS n_a, sum(s.a) AS total FROM {scratch_table}"
+        )
         assert agg["n"][0].as_py() == 3
         assert agg["n_a"][0].as_py() == 1
         assert agg["total"][0].as_py() == 10
-        filtered = run_query(f"SELECT id FROM {scratch_table} WHERE s.a > 0 ORDER BY id")
+        filtered = run_query(
+            f"SELECT id FROM {scratch_table} WHERE s.a > 0 ORDER BY id"
+        )
         assert filtered["id"].to_pylist() == [1]
 
     def test_struct_column_survives_multi_chunk_stream(self, run_query) -> None:
@@ -206,7 +223,9 @@ class TestStructRetrievalExpressions:
             f"FROM generate_series(1, {n}) AS g(i)"
         )
         assert t.num_rows == n
-        assert t["s"].num_chunks > 1, "expected the result to span several record batches"
+        assert t["s"].num_chunks > 1, (
+            "expected the result to span several record batches"
+        )
         assert t["s"][0].as_py() == {"a": 1, "b": "v"}
         assert t["s"][n - 1].as_py() == {"a": n, "b": "v"}
 
@@ -234,8 +253,11 @@ class TestStructTableRoundtrip:
         )
         t = run_query(f"SELECT id, s, s_nested FROM {scratch_table} ORDER BY id")
         assert t.to_pylist() == [
-            {"id": 1, "s": {"a": 1, "b": "x"},
-             "s_nested": {"x": 10, "child": {"y": 20, "z": "y"}}},
+            {
+                "id": 1,
+                "s": {"a": 1, "b": "x"},
+                "s_nested": {"x": 10, "child": {"y": 20, "z": "y"}},
+            },
             {"id": 2, "s": None, "s_nested": {"x": 30, "child": None}},
         ]
 
@@ -281,7 +303,11 @@ _SHAPE_CASES = [
     ),
     pytest.param(
         pa.struct([("xs", pa.list_(pa.int32())), ("name", pa.string())]),
-        [{"xs": [1, 2, 3], "name": "w1"}, {"xs": [], "name": None}, {"xs": None, "name": "w3"}],
+        [
+            {"xs": [1, 2, 3], "name": "w1"},
+            {"xs": [], "name": None},
+            {"xs": None, "name": "w3"},
+        ],
         'STRUCT("xs" ARRAY(INTEGER), "name" TEXT)',
         id="struct_with_array",
     ),
@@ -292,8 +318,14 @@ _SHAPE_CASES = [
         id="array_of_structs",
     ),
     pytest.param(
-        pa.struct([("items", pa.list_(pa.struct([("k", pa.int32())]))), ("n", pa.int32())]),
-        [{"items": [{"k": 1}, {"k": 2}], "n": 2}, {"items": [], "n": 0}, {"items": None, "n": None}],
+        pa.struct(
+            [("items", pa.list_(pa.struct([("k", pa.int32())]))), ("n", pa.int32())]
+        ),
+        [
+            {"items": [{"k": 1}, {"k": 2}], "n": 2},
+            {"items": [], "n": 0},
+            {"items": None, "n": None},
+        ],
         'STRUCT("items" ARRAY(STRUCT("k" INTEGER)), "n" INTEGER)',
         id="struct_of_array_of_structs",
     ),
@@ -312,7 +344,10 @@ _SHAPE_CASES = [
     pytest.param(
         _ALTERNATING,
         [
-            [{"a": [{"leaf": 1}, {"leaf": None}], "b": {"xs": [1, 2]}}, {"a": [], "b": {"xs": None}}],
+            [
+                {"a": [{"leaf": 1}, {"leaf": None}], "b": {"xs": [1, 2]}},
+                {"a": [], "b": {"xs": None}},
+            ],
             [None, {"a": None, "b": None}],
             None,
         ],
@@ -329,8 +364,14 @@ _SHAPE_CASES = [
     pytest.param(
         # Reserved words as field names must be emitted quoted, or the type
         # round-trip fails on the server.
-        pa.struct([("order", pa.int32()), ("group", pa.string()), ("inner", pa.int32())]),
-        [{"order": 1, "group": "g", "inner": 2}, {"order": None, "group": "", "inner": None}, None],
+        pa.struct(
+            [("order", pa.int32()), ("group", pa.string()), ("inner", pa.int32())]
+        ),
+        [
+            {"order": 1, "group": "g", "inner": 2},
+            {"order": None, "group": "", "inner": None},
+            None,
+        ],
         'STRUCT("order" INTEGER, "group" TEXT, "inner" INTEGER)',
         id="keyword_field_names",
     ),
@@ -345,35 +386,41 @@ class TestStructIngestShapes:
     def test_shape_round_trips(
         self, ingest, run_query, scratch_table, arrow_type, values, expected_type
     ) -> None:
-        tbl = pa.table({
-            "id": pa.array(range(len(values)), type=pa.int32()),
-            "s": pa.array(values, type=arrow_type),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array(range(len(values)), type=pa.int32()),
+                "s": pa.array(values, type=arrow_type),
+            }
+        )
         ingest(scratch_table, tbl)
         got = run_query(f"SELECT id, s FROM {scratch_table} ORDER BY id")
         assert got.to_pylist() == tbl.to_pylist()
         assert _column_types(run_query, scratch_table)["s"] == expected_type
 
-    def test_every_scalar_type_as_a_struct_field(self, ingest, run_query, scratch_table) -> None:
-        typ = pa.struct([
-            ("f_int8", pa.int8()),
-            ("f_int16", pa.int16()),
-            ("f_int32", pa.int32()),
-            ("f_int64", pa.int64()),
-            ("f_uint8", pa.uint8()),
-            ("f_uint16", pa.uint16()),
-            ("f_uint32", pa.uint32()),
-            ("f_float32", pa.float32()),
-            ("f_float64", pa.float64()),
-            ("f_bool", pa.bool_()),
-            ("f_string", pa.string()),
-            ("f_large_string", pa.large_string()),
-            ("f_binary", pa.binary()),
-            ("f_date", pa.date32()),
-            ("f_ts_ntz", pa.timestamp("us")),
-            ("f_ts_tz", pa.timestamp("us", tz="UTC")),
-            ("f_decimal", pa.decimal128(10, 3)),
-        ])
+    def test_every_scalar_type_as_a_struct_field(
+        self, ingest, run_query, scratch_table
+    ) -> None:
+        typ = pa.struct(
+            [
+                ("f_int8", pa.int8()),
+                ("f_int16", pa.int16()),
+                ("f_int32", pa.int32()),
+                ("f_int64", pa.int64()),
+                ("f_uint8", pa.uint8()),
+                ("f_uint16", pa.uint16()),
+                ("f_uint32", pa.uint32()),
+                ("f_float32", pa.float32()),
+                ("f_float64", pa.float64()),
+                ("f_bool", pa.bool_()),
+                ("f_string", pa.string()),
+                ("f_large_string", pa.large_string()),
+                ("f_binary", pa.binary()),
+                ("f_date", pa.date32()),
+                ("f_ts_ntz", pa.timestamp("us")),
+                ("f_ts_tz", pa.timestamp("us", tz="UTC")),
+                ("f_decimal", pa.decimal128(10, 3)),
+            ]
+        )
         row = {
             "f_int8": 1,
             "f_int16": 100,
@@ -389,15 +436,19 @@ class TestStructIngestShapes:
             "f_large_string": "lstr",
             "f_binary": b"\x01\x02",
             "f_date": datetime.date(2020, 1, 2),
-            "f_ts_ntz": datetime.datetime(2020, 1, 1, 1, 0, 0),
-            "f_ts_tz": datetime.datetime(2020, 1, 1, 1, 0, 0, tzinfo=datetime.timezone.utc),
+            "f_ts_ntz": datetime.datetime(2020, 1, 1, 1, 0, 0),  # noqa: DTZ001 -- tz-naive column
+            "f_ts_tz": datetime.datetime(
+                2020, 1, 1, 1, 0, 0, tzinfo=datetime.timezone.utc
+            ),
             "f_decimal": Decimal("1.001"),
         }
         all_null = {name: None for name in row}
-        tbl = pa.table({
-            "id": pa.array([1, 2, 3], type=pa.int32()),
-            "s": pa.array([row, all_null, None], type=typ),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2, 3], type=pa.int32()),
+                "s": pa.array([row, all_null, None], type=typ),
+            }
+        )
         ingest(scratch_table, tbl)
         got = run_query(f"SELECT id, s FROM {scratch_table} ORDER BY id")
         assert got["s"][0].as_py() == row
@@ -407,7 +458,11 @@ class TestStructIngestShapes:
         # size, and the tz-aware timestamp keeps its zone.  The per-type mapping
         # itself is pinned by ArrowToFireboltTypeTest.
         column_type = _column_types(run_query, scratch_table)["s"]
-        for expected in ('"f_int8" INTEGER', '"f_uint32" BIGINT', '"f_ts_tz" TIMESTAMPTZ'):
+        for expected in (
+            '"f_int8" INTEGER',
+            '"f_uint32" BIGINT',
+            '"f_ts_tz" TIMESTAMPTZ',
+        ):
             assert expected in column_type
 
     def test_multi_batch_stream(self, ingest, run_query, scratch_table) -> None:
@@ -435,12 +490,15 @@ class TestStructIngestShapes:
         # A multi-row nested payload through the multipart upload, read back as
         # aggregates over struct fields.
         n = 5_000
-        tbl = pa.table({
-            "id": pa.array(range(n), type=pa.int32()),
-            "s": pa.array(
-                [{"a": i, "b": None if i % 3 == 0 else f"b{i}"} for i in range(n)], type=_FLAT
-            ),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array(range(n), type=pa.int32()),
+                "s": pa.array(
+                    [{"a": i, "b": None if i % 3 == 0 else f"b{i}"} for i in range(n)],
+                    type=_FLAT,
+                ),
+            }
+        )
         ingest(scratch_table, tbl)
         got = run_query(
             f"SELECT count(*) AS n, count(s.b) AS n_b, sum(s.a) AS total FROM {scratch_table}"
@@ -461,21 +519,29 @@ class TestStructIngestNulls:
             # id, arr value — one perturbation per row, so a regression pins down
             # a single level.
             (1, [{"a": [{"leaf": 1}], "b": {"xs": [1]}}]),  # fully populated
-            (2, None),                                       # NULL array
-            (3, []),                                         # empty array
-            (4, [None]),                                     # NULL struct element
-            (5, [{"a": None, "b": {"xs": [1]}}]),            # NULL array field
-            (6, [{"a": [], "b": {"xs": [1]}}]),              # empty array field
-            (7, [{"a": [None], "b": {"xs": [1]}}]),          # NULL struct in inner array
+            (2, None),  # NULL array
+            (3, []),  # empty array
+            (4, [None]),  # NULL struct element
+            (5, [{"a": None, "b": {"xs": [1]}}]),  # NULL array field
+            (6, [{"a": [], "b": {"xs": [1]}}]),  # empty array field
+            (7, [{"a": [None], "b": {"xs": [1]}}]),  # NULL struct in inner array
             (8, [{"a": [{"leaf": None}], "b": {"xs": [1]}}]),  # NULL leaf field
-            (9, [{"a": [{"leaf": 1}], "b": None}]),          # NULL nested struct
-            (10, [{"a": [{"leaf": 1}], "b": {"xs": None}}]),  # NULL array in nested struct
-            (11, [{"a": [{"leaf": 1}], "b": {"xs": [None]}}]),  # NULL element in that array
+            (9, [{"a": [{"leaf": 1}], "b": None}]),  # NULL nested struct
+            (
+                10,
+                [{"a": [{"leaf": 1}], "b": {"xs": None}}],
+            ),  # NULL array in nested struct
+            (
+                11,
+                [{"a": [{"leaf": 1}], "b": {"xs": [None]}}],
+            ),  # NULL element in that array
         ]
-        tbl = pa.table({
-            "id": pa.array([r[0] for r in rows], type=pa.int32()),
-            "deep": pa.array([r[1] for r in rows], type=_ALTERNATING),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([r[0] for r in rows], type=pa.int32()),
+                "deep": pa.array([r[1] for r in rows], type=_ALTERNATING),
+            }
+        )
         ingest(scratch_table, tbl)
         return scratch_table, tbl
 
@@ -517,14 +583,20 @@ class TestStructIngestNulls:
         assert (by_id[8]["a1_null"], by_id[8]["leaf_null"]) == (False, True)
         # The nested struct and the array inside it.
         assert by_id[9]["b_null"] is True
-        assert (by_id[10]["b_null"], by_id[10]["xs_null"], by_id[10]["xs_len"]) == (False, True, None)
+        assert (by_id[10]["b_null"], by_id[10]["xs_null"], by_id[10]["xs_len"]) == (
+            False,
+            True,
+            None,
+        )
         assert (by_id[11]["xs_len"], by_id[11]["xs1_null"]) == (1, True)
 
 
 class TestStructIngestModes:
     """The ingest modes other than plain create, with struct payloads."""
 
-    def test_append_into_existing_struct_table(self, ingest, run_query, scratch_table) -> None:
+    def test_append_into_existing_struct_table(
+        self, ingest, run_query, scratch_table
+    ) -> None:
         # append synthesises no DDL — the nested types come from the target table.
         run_query(
             f"CREATE TABLE {scratch_table} (id INT, s STRUCT(a INT, b TEXT), arr ARRAY(STRUCT(k INT, v TEXT)))"
@@ -534,18 +606,26 @@ class TestStructIngestModes:
             "(0, struct(0, 'pre')::struct(a INT, b TEXT), "
             "    [struct(0, 'pre')::struct(k INT, v TEXT)])"
         )
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "s": pa.array([{"a": 1, "b": "x"}, None], type=_FLAT),
-            "arr": pa.array([[{"k": 1, "v": "a"}], []], type=_ARR_STRUCT),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "s": pa.array([{"a": 1, "b": "x"}, None], type=_FLAT),
+                "arr": pa.array([[{"k": 1, "v": "a"}], []], type=_ARR_STRUCT),
+            }
+        )
         ingest(scratch_table, tbl, "adbc.ingest.mode.append")
         got = run_query(f"SELECT id, s, arr FROM {scratch_table} ORDER BY id")
         assert got["id"].to_pylist() == [0, 1, 2]
         assert got["s"].to_pylist() == [{"a": 0, "b": "pre"}, {"a": 1, "b": "x"}, None]
-        assert got["arr"].to_pylist() == [[{"k": 0, "v": "pre"}], [{"k": 1, "v": "a"}], []]
+        assert got["arr"].to_pylist() == [
+            [{"k": 0, "v": "pre"}],
+            [{"k": 1, "v": "a"}],
+            [],
+        ]
 
-    def test_replace_swaps_a_struct_schema(self, ingest, run_query, scratch_table) -> None:
+    def test_replace_swaps_a_struct_schema(
+        self, ingest, run_query, scratch_table
+    ) -> None:
         run_query(f"CREATE TABLE {scratch_table} (id INT)")
         run_query(f"INSERT INTO {scratch_table} VALUES (99)")
         tbl = pa.table({"s": pa.array([{"x": 1, "child": None}], type=_NESTED)})
@@ -554,10 +634,14 @@ class TestStructIngestModes:
         assert got.column_names == ["s"]
         assert got["s"][0].as_py() == {"x": 1, "child": None}
 
-    def test_zero_row_create_produces_the_struct_schema(self, ingest, run_query, scratch_table) -> None:
+    def test_zero_row_create_produces_the_struct_schema(
+        self, ingest, run_query, scratch_table
+    ) -> None:
         # Only the IPC schema message reaches the server; the table still has to
         # come out with the full nested type.
-        tbl = pa.table({"s": pa.array([], type=_NESTED), "arr": pa.array([], type=_ARR_STRUCT)})
+        tbl = pa.table(
+            {"s": pa.array([], type=_NESTED), "arr": pa.array([], type=_ARR_STRUCT)}
+        )
         ingest(scratch_table, tbl)
         got = run_query(f"SELECT s, arr FROM {scratch_table}")
         assert got.num_rows == 0
@@ -567,21 +651,29 @@ class TestStructIngestModes:
     def test_public_api_ingest(self, cursor, run_query, scratch_table) -> None:
         # The same payload through Cursor.adbc_ingest(), the path ADBC clients
         # actually use.  A pa.Table takes the wrapper's bind_stream path.
-        tbl = pa.table({
-            "id": pa.array([1, 2], type=pa.int32()),
-            "s": pa.array([{"x": 1, "child": {"y": 2, "z": "z"}}, None], type=_NESTED),
-            "arr": pa.array([[{"k": 1, "v": "a"}], None], type=_ARR_STRUCT),
-        })
+        tbl = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int32()),
+                "s": pa.array(
+                    [{"x": 1, "child": {"y": 2, "z": "z"}}, None], type=_NESTED
+                ),
+                "arr": pa.array([[{"k": 1, "v": "a"}], None], type=_ARR_STRUCT),
+            }
+        )
         cursor.adbc_ingest(scratch_table, tbl, mode="create")
         got = run_query(f"SELECT id, s, arr FROM {scratch_table} ORDER BY id")
         assert got.to_pylist() == tbl.to_pylist()
 
-    def test_public_api_ingest_record_batch(self, cursor, run_query, scratch_table) -> None:
+    def test_public_api_ingest_record_batch(
+        self, cursor, run_query, scratch_table
+    ) -> None:
         # A RecordBatch takes the bind (not bind_stream) path inside the wrapper.
-        batch = pa.record_batch({
-            "s": pa.array([{"a": 1, "b": "x"}], type=_FLAT),
-            "arr": pa.array([[{"k": 1, "v": "a"}]], type=_ARR_STRUCT),
-        })
+        batch = pa.record_batch(
+            {
+                "s": pa.array([{"a": 1, "b": "x"}], type=_FLAT),
+                "arr": pa.array([[{"k": 1, "v": "a"}]], type=_ARR_STRUCT),
+            }
+        )
         cursor.adbc_ingest(scratch_table, batch, mode="create")
         got = run_query(f"SELECT s, arr FROM {scratch_table}")
         assert got["s"][0].as_py() == {"a": 1, "b": "x"}
@@ -592,21 +684,35 @@ class TestStructIngestNullability:
     """Firebolt requires STRUCT fields to be nullable, while a column may be
     NOT NULL.  The two levels must not be conflated when the DDL is built."""
 
-    def test_non_nullable_struct_field_is_widened(self, ingest, run_query, scratch_table) -> None:
+    def test_non_nullable_struct_field_is_widened(
+        self, ingest, run_query, scratch_table
+    ) -> None:
         # Emitting `STRUCT("a" INT NOT NULL)` is rejected by the server with
         # "STRUCT fields have to be nullable", so the field nullability is
         # dropped and the ingest succeeds.
         typ = pa.struct([pa.field("a", pa.int32(), nullable=False), ("b", pa.string())])
         tbl = pa.table({"s": pa.array([{"a": 1, "b": "x"}], type=typ)})
         ingest(scratch_table, tbl)
-        assert run_query(f"SELECT s FROM {scratch_table}")["s"][0].as_py() == {"a": 1, "b": "x"}
-        assert _column_types(run_query, scratch_table)["s"] == 'STRUCT("a" INTEGER, "b" TEXT)'
+        assert run_query(f"SELECT s FROM {scratch_table}")["s"][0].as_py() == {
+            "a": 1,
+            "b": "x",
+        }
+        assert (
+            _column_types(run_query, scratch_table)["s"]
+            == 'STRUCT("a" INTEGER, "b" TEXT)'
+        )
 
     def test_non_nullable_fields_deep_in_the_nesting_are_widened(
         self, ingest, run_query, scratch_table
     ) -> None:
         inner = pa.struct([pa.field("leaf", pa.int32(), nullable=False)])
-        typ = pa.list_(pa.field("item", pa.struct([pa.field("child", inner, nullable=False)]), nullable=False))
+        typ = pa.list_(
+            pa.field(
+                "item",
+                pa.struct([pa.field("child", inner, nullable=False)]),
+                nullable=False,
+            )
+        )
         tbl = pa.table({"arr": pa.array([[{"child": {"leaf": 1}}]], type=typ)})
         ingest(scratch_table, tbl)
         assert run_query(f"SELECT arr FROM {scratch_table}")["arr"][0].as_py() == [
@@ -616,7 +722,9 @@ class TestStructIngestNullability:
             'ARRAY(STRUCT("child" STRUCT("leaf" INTEGER)))'
         )
 
-    def test_non_nullable_struct_column_stays_not_null(self, ingest, run_query, scratch_table) -> None:
+    def test_non_nullable_struct_column_stays_not_null(
+        self, ingest, run_query, scratch_table
+    ) -> None:
         typ = pa.struct([("a", pa.int32())])
         tbl = pa.table(
             {"s": pa.array([{"a": 1}], type=typ)},

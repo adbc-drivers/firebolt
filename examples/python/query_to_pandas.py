@@ -26,7 +26,11 @@ import os
 from adbc_driver_manager import dbapi
 
 DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libadbc_driver_firebolt.so"
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "build",
+    "libadbc_driver_firebolt.so",
 )
 
 
@@ -54,42 +58,44 @@ def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
     driver, db_kwargs = connection_settings()
 
-    with dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn:
-        with conn.cursor() as cur:
-            # --- pyarrow.Table: the native shape, no conversion cost ---------
+    with (
+        dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn,
+        conn.cursor() as cur,
+    ):
+        # --- pyarrow.Table: the native shape, no conversion cost ---------
+        cur.execute(QUERY)
+        table = cur.fetch_arrow_table()
+        print("=== pyarrow.Table ===")
+        print(table)
+        print(f"\nschema:\n{table.schema}")
+
+        # --- pandas -----------------------------------------------------
+        cur.execute(QUERY)
+        print("\n=== pandas.DataFrame ===")
+        print(cur.fetch_df())
+
+        # --- polars: zero-copy from the same Arrow table -----------------
+        try:
+            import polars as pl
+        except ImportError:
+            print("\n(polars not installed; skipping)")
+        else:
             cur.execute(QUERY)
-            table = cur.fetch_arrow_table()
-            print("=== pyarrow.Table ===")
-            print(table)
-            print(f"\nschema:\n{table.schema}")
+            print("\n=== polars.DataFrame ===")
+            print(pl.from_arrow(cur.fetch_arrow_table()))
 
-            # --- pandas -----------------------------------------------------
-            cur.execute(QUERY)
-            print("\n=== pandas.DataFrame ===")
-            print(cur.fetch_df())
-
-            # --- polars: zero-copy from the same Arrow table -----------------
-            try:
-                import polars as pl
-            except ImportError:
-                print("\n(polars not installed; skipping)")
-            else:
-                cur.execute(QUERY)
-                print("\n=== polars.DataFrame ===")
-                print(pl.from_arrow(cur.fetch_arrow_table()))
-
-            # --- streaming --------------------------------------------------
-            # fetch_arrow_table() materialises the whole result.  For anything
-            # that might not fit in memory, iterate record batches instead:
-            # the driver hands them over as the HTTP response arrives.
-            print("\n=== streaming batches ===")
-            cur.execute("SELECT n FROM generate_series(1, 100000) AS s(n)")
-            rows = 0
-            batches = 0
-            for batch in cur.fetch_record_batch():
-                rows += batch.num_rows
-                batches += 1
-            print(f"consumed {rows} rows in {batches} batch(es) without holding the result")
+        # --- streaming --------------------------------------------------
+        # fetch_arrow_table() materialises the whole result.  For anything
+        # that might not fit in memory, iterate record batches instead:
+        # the driver hands them over as the HTTP response arrives.
+        print("\n=== streaming batches ===")
+        cur.execute("SELECT n FROM generate_series(1, 100000) AS s(n)")
+        rows = 0
+        batches = 0
+        for batch in cur.fetch_record_batch():
+            rows += batch.num_rows
+            batches += 1
+        print(f"consumed {rows} rows in {batches} batch(es) without holding the result")
 
 
 if __name__ == "__main__":

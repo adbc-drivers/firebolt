@@ -45,6 +45,9 @@ private keys, including test material: generate test certificates at run time.
 ├── firebolt.toml                          # ADBC driver manifest (shipped with releases)
 ├── LICENSE.txt                            # Apache 2.0
 ├── NOTICE.txt                             # attribution notice
+├── .pre-commit-config.yaml                # linters: clang-format, clang-tidy, ruff, shellcheck, codespell, rat
+├── .clang-format / .clang-tidy            # C++ style and static checks (.clang-tidy adapted from packdb)
+├── .rat-excludes / .rat-apache            # license check: files without a header / taken from Apache (adbc.h)
 │
 ├── docs/
 │   └── authentication.md                  # what auth works today + the SDK-spec target model
@@ -83,6 +86,7 @@ private keys, including test material: generate test certificates at run time.
 │   │                                      #   image (Ubuntu 22.04 + clang-18) for glibc portability;
 │   │                                      #   inits submodules, cmake + ninja, tests ON, SSL ON
 │   ├── test-unit.sh                       # ctest --output-on-failure in build/
+│   ├── clang-tidy.sh                      # clang-tidy-18 in the builder image over build/compile_commands.json
 │   └── test-integration.sh                # forwards args to tests/integration/runner.py
 │
 ├── docker/
@@ -90,7 +94,7 @@ private keys, including test material: generate test certificates at run time.
 │
 ├── .github/
 │   └── workflows/
-│       ├── enable-merge-to-main.yaml      # build + unit + integration + examples on every PR
+│       ├── enable-merge-to-main.yaml      # pre-commit + build + clang-tidy + unit + integration + examples on every PR
 │       └── release.yaml                   # tag v* → multi-arch .so + sha256 + manifest on a release
 │
 └── tests/
@@ -178,6 +182,10 @@ local development and CI invoke the same commands.
 ./scripts/test-integration.sh -k test_connect                    # filter by name
 ./scripts/test-integration.sh tests/dml                          # one suite
 ./scripts/test-integration.sh --engine-image=...:latest -x       # override engine image
+
+# Linters (pre-commit; clang-tidy needs a prior build.sh):
+pre-commit run --all-files
+./scripts/clang-tidy.sh                                          # clang-tidy alone
 ```
 
 `runner.py` builds `firebolt-adbc-integration-test-runner:latest` locally on
@@ -226,6 +234,15 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from the
   driver name; all other symbols (including libc++ internals) are hidden, and nothing
   outside `Adbc*` is exported.
+- **clang-tidy runs in the builder image, from `compile_commands.json`** — the build
+  exports it (`CMAKE_EXPORT_COMPILE_COMMANDS`), and `scripts/clang-tidy.sh` runs the
+  image's `clang-tidy-18`, so every machine and CI apply one version to the flags the
+  driver is really compiled with. The checks are packdb's list and naming rules,
+  minus `boost-*` (no Boost here) and `google-runtime-int` (`long` is libcurl's API
+  type); all warnings are errors. The header filter is passed by the script, anchored
+  at the repository root, because a relative one would also match `submodule/*/src/`.
+  The pre-commit hook needs a build, so CI's lint job skips it and the build job runs
+  the script.
 - **Post-build dependency report** — every build prints concise `DT_NEEDED` `.so` names
   for `libadbc_driver_firebolt.so` so dynamic dependencies are visible in Ninja logs.
 - **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` wraps table

@@ -30,7 +30,6 @@ else is forwarded to pytest as-is.
 
 import argparse
 import logging
-import os
 import os.path as p
 import shlex
 import signal
@@ -38,15 +37,16 @@ import subprocess
 import sys
 import uuid
 
+logger = logging.getLogger(__name__)
 
 RUNNER_IMAGE = "firebolt-adbc-integration-test-runner:latest"
 # Firebolt engine image: the unified `firebolt` binary (server + client). Its entrypoint
 # execs `firebolt <args>` with a default command of `server --data-dir /var/lib/firebolt`.
 DEFAULT_ENGINE_IMAGE = "ghcr.io/firebolt-db/engine:latest"
 
-CUR_DIR = p.dirname(p.realpath(__file__))                        # adbc/tests/integration
-DOCKERFILE_DIR = p.join(CUR_DIR, "docker")                       # adbc/tests/integration/docker
-REPO_ROOT = p.abspath(p.join(CUR_DIR, "..", ".."))               # adbc
+CUR_DIR = p.dirname(p.realpath(__file__))  # adbc/tests/integration
+DOCKERFILE_DIR = p.join(CUR_DIR, "docker")  # adbc/tests/integration/docker
+REPO_ROOT = p.abspath(p.join(CUR_DIR, "..", ".."))  # adbc
 DEFAULT_ADBC_BINARY = p.join(REPO_ROOT, "build", "libadbc_driver_firebolt.so")
 
 _current_container: str | None = None
@@ -59,7 +59,8 @@ def _sigint_handler(signum, frame):
     if _current_network:
         subprocess.call(
             ["docker", "network", "rm", _current_network],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     raise KeyboardInterrupt("Killed by Ctrl+C")
 
@@ -68,7 +69,7 @@ signal.signal(signal.SIGINT, _sigint_handler)
 
 
 def _run(cmd: list[str]):
-    logging.info("Running: %s", shlex.join(cmd))
+    logger.info("Running: %s", shlex.join(cmd))
     subprocess.check_call(cmd, stdout=sys.stdout, stderr=sys.stderr)
 
 
@@ -81,12 +82,16 @@ def _ensure_runner_image(image: str):
     """
     inspect = subprocess.run(
         ["docker", "image", "inspect", image],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
     )
     if inspect.returncode == 0:
-        logging.info("Runner image %s present locally; skipping build.", image)
+        logger.info("Runner image %s present locally; skipping build.", image)
         return
-    logging.info("Building runner image %s from %s/Dockerfile ...", image, DOCKERFILE_DIR)
+    logger.info(
+        "Building runner image %s from %s/Dockerfile ...", image, DOCKERFILE_DIR
+    )
     _run(["docker", "build", "-t", image, DOCKERFILE_DIR])
 
 
@@ -100,17 +105,21 @@ def _ensure_image(image: str):
     """
     pull = subprocess.run(
         ["docker", "pull", image],
-        stdout=sys.stdout, stderr=sys.stderr,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        check=False,
     )
     if pull.returncode == 0:
         return
 
     inspect = subprocess.run(
         ["docker", "image", "inspect", image],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
     )
     if inspect.returncode == 0:
-        logging.warning("docker pull %s failed; falling back to the local copy.", image)
+        logger.warning("docker pull %s failed; falling back to the local copy.", image)
         return
 
     raise SystemExit(
@@ -124,28 +133,44 @@ def _create_bridge_network(network: str, project: str):
     """Create a bridge network with the labels docker compose needs to adopt it."""
     result = subprocess.run(
         [
-            "docker", "network", "create",
-            "--driver", "bridge",
-            "--label", f"com.docker.compose.project={project}",
-            "--label", "com.docker.compose.network=default",
-            "--label", "com.docker.compose.version=2",
+            "docker",
+            "network",
+            "create",
+            "--driver",
+            "bridge",
+            "--label",
+            f"com.docker.compose.project={project}",
+            "--label",
+            "com.docker.compose.network=default",
+            "--label",
+            "com.docker.compose.version=2",
             network,
         ],
-        stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode != 0 and "already exists" not in result.stderr:
-        raise RuntimeError(f"Failed to create Docker network {network}: {result.stderr.strip()}")
+        raise RuntimeError(
+            f"Failed to create Docker network {network}: {result.stderr.strip()}"
+        )
 
 
 def _remove_bridge_network(network: str):
     subprocess.run(
         ["docker", "network", "rm", network],
-        stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        check=False,
     )
 
 
 def _launch_runner(
-    engine_image: str, adbc_binary: str, pytest_args: list[str], project: str, network: str,
+    engine_image: str,
+    adbc_binary: str,
+    pytest_args: list[str],
+    project: str,
+    network: str,
 ) -> int:
     global _current_container, _current_network
     container = f"{project}_pytest"
@@ -166,28 +191,37 @@ def _launch_runner(
 
     pytest_cmd = ["pytest", "-ss", "-rfEp", "--color=no", "-vv"] + pytest_args
 
-    cmd = [
-        "docker", "run",
-        f"--network={network}",
-        "--rm",
-        "--name", container,
-        "--privileged",
-        f"--volume={REPO_ROOT}:{REPO_ROOT}",
-        "--volume=/var/run/docker.sock:/var/run/docker.sock",
-        f"--volume={adbc_so}:{adbc_so}",
-        f"--workdir={workdir}",
-        "-e", f"PACKDB_TESTS_ADBC_BINARY_PATH={adbc_so}",
-        "-e", f"FIREBOLT_ENGINE_IMAGE={engine_image}",
-        "-e", f"COMPOSE_PROJECT_NAME={project}",
-    ] + tty_flags + [
-        RUNNER_IMAGE,
-        # The container entrypoint joins all args with spaces and runs them
-        # under sh -c, so pass the whole pytest invocation as one shlex-quoted
-        # string so argument boundaries (e.g. `-k 'foo and bar'`) survive.
-        shlex.join(pytest_cmd),
-    ]
+    cmd = (
+        [
+            "docker",
+            "run",
+            f"--network={network}",
+            "--rm",
+            "--name",
+            container,
+            "--privileged",
+            f"--volume={REPO_ROOT}:{REPO_ROOT}",
+            "--volume=/var/run/docker.sock:/var/run/docker.sock",
+            f"--volume={adbc_so}:{adbc_so}",
+            f"--workdir={workdir}",
+            "-e",
+            f"PACKDB_TESTS_ADBC_BINARY_PATH={adbc_so}",
+            "-e",
+            f"FIREBOLT_ENGINE_IMAGE={engine_image}",
+            "-e",
+            f"COMPOSE_PROJECT_NAME={project}",
+        ]
+        + tty_flags
+        + [
+            RUNNER_IMAGE,
+            # The container entrypoint joins all args with spaces and runs them
+            # under sh -c, so pass the whole pytest invocation as one shlex-quoted
+            # string so argument boundaries (e.g. `-k 'foo and bar'`) survive.
+            shlex.join(pytest_cmd),
+        ]
+    )
 
-    logging.info("Launching runner container %s: %s", container, shlex.join(cmd))
+    logger.info("Launching runner container %s: %s", container, shlex.join(cmd))
     return subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr).wait()
 
 
@@ -204,11 +238,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--engine-image", default=DEFAULT_ENGINE_IMAGE,
+        "--engine-image",
+        default=DEFAULT_ENGINE_IMAGE,
         help=f"Firebolt engine Docker image (default: {DEFAULT_ENGINE_IMAGE})",
     )
     parser.add_argument(
-        "--adbc-binary", default=DEFAULT_ADBC_BINARY,
+        "--adbc-binary",
+        default=DEFAULT_ADBC_BINARY,
         help=f"Path to libadbc_driver_firebolt.so (default: {DEFAULT_ADBC_BINARY})",
     )
     args, pytest_args = parser.parse_known_args()
@@ -237,7 +273,7 @@ def main():
 
     if retcode != 0:
         raise SystemExit(retcode)
-    logging.info("Tests passed successfully")
+    logger.info("Tests passed successfully")
 
 
 if __name__ == "__main__":

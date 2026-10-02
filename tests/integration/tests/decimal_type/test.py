@@ -73,9 +73,7 @@ class TestDecimalArithmetic:
         assert float(t["x"][0].as_py()) == pytest.approx(10.0, abs=1e-6)
 
     def test_comparison(self, run_query) -> None:
-        t = run_query(
-            "SELECT (1.1::DECIMAL(5,2) < 1.2::DECIMAL(5,2)) AS x"
-        )
+        t = run_query("SELECT (1.1::DECIMAL(5,2) < 1.2::DECIMAL(5,2)) AS x")
         assert t["x"][0].as_py() is True
 
 

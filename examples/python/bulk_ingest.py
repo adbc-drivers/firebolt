@@ -33,7 +33,11 @@ import pyarrow as pa
 from adbc_driver_manager import dbapi
 
 DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "libadbc_driver_firebolt.so"
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "build",
+    "libadbc_driver_firebolt.so",
 )
 
 TABLE = "adbc_example_events"
@@ -57,14 +61,18 @@ def show(cur, sql: str) -> None:
 
 def flat_modes(cur) -> None:
     """The four ingest modes, on a flat schema."""
-    first = pa.table({
-        "id": pa.array([1, 2], pa.int32()),
-        "name": pa.array(["alice", "bob"], pa.string()),
-    })
-    more = pa.table({
-        "id": pa.array([3], pa.int32()),
-        "name": pa.array(["carol"], pa.string()),
-    })
+    first = pa.table(
+        {
+            "id": pa.array([1, 2], pa.int32()),
+            "name": pa.array(["alice", "bob"], pa.string()),
+        }
+    )
+    more = pa.table(
+        {
+            "id": pa.array([3], pa.int32()),
+            "name": pa.array(["carol"], pa.string()),
+        }
+    )
 
     # create: CREATE TABLE from the Arrow schema, then INSERT.  Fails if the
     # table already exists.
@@ -99,19 +107,21 @@ def nested_types(cur) -> None:
     STRUCT("field" TYPE, ...), recursing to any depth, so nested data needs no
     hand-written DDL.
     """
-    table = pa.table({
-        "id": pa.array([1, 2], pa.int32()),
-        "tags": pa.array([["red", "blue"], ["green"]], pa.list_(pa.string())),
-        "author": pa.array(
-            [{"name": "alice", "score": 10}, {"name": "bob", "score": 20}],
-            pa.struct([("name", pa.string()), ("score", pa.int32())]),
-        ),
-        # A struct inside an array — both levels are generated.
-        "revisions": pa.array(
-            [[{"rev": 1}, {"rev": 2}], [{"rev": 1}]],
-            pa.list_(pa.struct([("rev", pa.int32())])),
-        ),
-    })
+    table = pa.table(
+        {
+            "id": pa.array([1, 2], pa.int32()),
+            "tags": pa.array([["red", "blue"], ["green"]], pa.list_(pa.string())),
+            "author": pa.array(
+                [{"name": "alice", "score": 10}, {"name": "bob", "score": 20}],
+                pa.struct([("name", pa.string()), ("score", pa.int32())]),
+            ),
+            # A struct inside an array — both levels are generated.
+            "revisions": pa.array(
+                [[{"rev": 1}, {"rev": 2}], [{"rev": 1}]],
+                pa.list_(pa.struct([("rev", pa.int32())])),
+            ),
+        }
+    )
 
     cur.adbc_ingest(NESTED_TABLE, table, mode="replace")
     print(f"\n=== nested types ({NESTED_TABLE}) ===")
@@ -138,27 +148,31 @@ def low_level_ingest(driver: str, db_kwargs: dict) -> None:
     """
     table = pa.table({"id": pa.array([7, 8, 9], pa.int32())})
 
-    with adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db:
-        with adbc_driver_manager.AdbcConnection(db) as conn:
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_options(**{
+    with (
+        adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db,
+        adbc_driver_manager.AdbcConnection(db) as conn,
+    ):
+        with adbc_driver_manager.AdbcStatement(conn) as stmt:
+            stmt.set_options(
+                **{
                     adbc_driver_manager.StatementOptions.INGEST_TARGET_TABLE.value: TABLE,
                     # The mode values have no enum in the driver manager; they
                     # are the literal option strings from the ADBC spec.
                     adbc_driver_manager.StatementOptions.INGEST_MODE.value: "adbc.ingest.mode.replace",
-                })
-                stmt.bind_stream(table.__arrow_c_stream__())
-                stmt.execute_update()
+                }
+            )
+            stmt.bind_stream(table.__arrow_c_stream__())
+            stmt.execute_update()
 
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query(f"SELECT * FROM {TABLE} ORDER BY id")
-                stream, _ = stmt.execute_query()
-                print("\n=== low-level bind_stream + execute_update ===")
-                print(pa.RecordBatchReader.from_stream(stream).read_all())
+        with adbc_driver_manager.AdbcStatement(conn) as stmt:
+            stmt.set_sql_query(f"SELECT * FROM {TABLE} ORDER BY id")
+            stream, _ = stmt.execute_query()
+            print("\n=== low-level bind_stream + execute_update ===")
+            print(pa.RecordBatchReader.from_stream(stream).read_all())
 
-            with adbc_driver_manager.AdbcStatement(conn) as stmt:
-                stmt.set_sql_query(f"DROP TABLE IF EXISTS {TABLE}")
-                stmt.execute_update()
+        with adbc_driver_manager.AdbcStatement(conn) as stmt:
+            stmt.set_sql_query(f"DROP TABLE IF EXISTS {TABLE}")
+            stmt.execute_update()
 
 
 def main() -> None:
@@ -167,10 +181,12 @@ def main() -> None:
 
     # autocommit=True so each ingest lands immediately and is visible to the
     # reads that follow.
-    with dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            flat_modes(cur)
-            nested_types(cur)
+    with (
+        dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn,
+        conn.cursor() as cur,
+    ):
+        flat_modes(cur)
+        nested_types(cur)
 
     low_level_ingest(driver, db_kwargs)
 

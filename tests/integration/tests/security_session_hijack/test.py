@@ -63,7 +63,7 @@ def test_4xx_with_update_parameters_does_not_mutate_session(mock_server, conn_to
     # First request: triggers the hijack attempt.
     with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
         stmt.set_sql_query("SELECT 1")
-        with pytest.raises(Exception):
+        with pytest.raises(adbc_driver_manager.OperationalError):
             stmt.execute_query()
 
     # Second request: the post-hijack canary.
@@ -119,7 +119,7 @@ def test_reset_session_ignored_on_error(mock_server, conn_to_mock):
     )
     with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
         stmt.set_sql_query("SELECT 1")
-        with pytest.raises(Exception):
+        with pytest.raises(adbc_driver_manager.OperationalError):
             stmt.execute_query()
 
     # Step 3: post-reset canary.  The session_marker must still be on the URL.

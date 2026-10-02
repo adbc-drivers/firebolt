@@ -21,7 +21,6 @@ and that nested arrays work correctly.
 """
 
 import pyarrow as pa
-import pytest
 
 
 class TestArrayLiterals:
@@ -85,7 +84,9 @@ class TestArrayRoundtrip:
 
     def test_multiple_rows_with_arrays(self, run_query, table_name) -> None:
         run_query(f"CREATE TABLE {table_name} (id INT, vals ARRAY(INT))")
-        run_query(f"INSERT INTO {table_name} VALUES (1, [1, 2]), (2, [3, 4, 5]), (3, [])")
+        run_query(
+            f"INSERT INTO {table_name} VALUES (1, [1, 2]), (2, [3, 4, 5]), (3, [])"
+        )
         t = run_query(f"SELECT id, vals FROM {table_name} ORDER BY id")
         assert t["vals"][0].as_py() == [1, 2]
         assert t["vals"][1].as_py() == [3, 4, 5]

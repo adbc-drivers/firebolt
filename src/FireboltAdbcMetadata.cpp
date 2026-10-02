@@ -52,11 +52,11 @@ static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::st
 // Build an ArrowStringView from a C string.
 static inline ArrowStringView sv(const char * s)
 {
-    return {s, (int64_t)strlen(s)};
+    return {s, static_cast<int64_t>(strlen(s))};
 }
 static inline ArrowStringView sv(const std::string & s)
 {
-    return {s.data(), (int64_t)s.size()};
+    return {s.data(), static_cast<int64_t>(s.size())};
 }
 
 // Export a single Arrow batch as a one-batch ArrowArrayStream.
@@ -139,7 +139,7 @@ static std::string executeAndRead(FireboltConnection * conn, const std::string &
         return "get_schema failed";
     }
 
-    int n_cols = (int)schema.n_children;
+    int n_cols = static_cast<int>(schema.n_children);
     result.col_names.clear();
     for (int c = 0; c < n_cols; c++)
         result.col_names.push_back(schema.children[c]->name ? schema.children[c]->name : "");
@@ -182,7 +182,7 @@ static std::string executeAndRead(FireboltConnection * conn, const std::string &
 // Find the index of a named column in a FlatResult (-1 if not found).
 static int colIdx(const FlatResult & r, const std::string & name)
 {
-    for (int i = 0; i < (int)r.col_names.size(); i++)
+    for (int i = 0; i < static_cast<int>(r.col_names.size()); i++)
         if (r.col_names[i] == name)
             return i;
     return -1;
@@ -192,7 +192,7 @@ static std::optional<std::string>
 getCol(const FlatResult & r, const std::vector<std::optional<std::string>> & row, const std::string & name)
 {
     int i = colIdx(r, name);
-    if (i < 0 || i >= (int)row.size())
+    if (i < 0 || i >= static_cast<int>(row.size()))
         return std::nullopt;
     return row[i];
 }
@@ -319,8 +319,8 @@ static int appendInfoRow(ArrowArray * batch, uint32_t code, int8_t type_id, cons
     return 0;
 }
 
-AdbcStatusCode
-ConnectionGetInfo(FireboltConnection * conn, const uint32_t * info_codes, size_t info_codes_len, ArrowArrayStream * out, AdbcError * error)
+AdbcStatusCode ConnectionGetInfo(
+    FireboltConnection * /*conn*/, const uint32_t * info_codes, size_t info_codes_len, ArrowArrayStream * out, AdbcError * error)
 {
     // Build the set of requested codes (empty = return all).
     std::unordered_set<uint32_t> requested;
@@ -855,7 +855,6 @@ AdbcStatusCode ConnectionGetObjects(
     if (table_type_filter && table_type_filter[0])
     {
         tables_sql += first ? " WHERE " : " AND ";
-        first = false;
         tables_sql += "table_type IN (";
         for (int i = 0; table_type_filter[i]; i++)
         {
@@ -923,14 +922,14 @@ AdbcStatusCode ConnectionGetObjects(
     // information_schema.tables (queried above with the same filters but no table_name filter).
     // Build the hierarchy from the flat tables result.
 
-    auto findOrAddCatalog = [&](const std::string & cat_name) -> CatalogRow & {
+    auto find_or_add_catalog = [&](const std::string & cat_name) -> CatalogRow & {
         for (auto & c : catalogs)
             if (c.catalog_name == cat_name)
                 return c;
         catalogs.push_back({cat_name, {}});
         return catalogs.back();
     };
-    auto findOrAddSchema = [](CatalogRow & cat, const std::string & sch_name) -> SchemaRow & {
+    auto find_or_add_schema = [](CatalogRow & cat, const std::string & sch_name) -> SchemaRow & {
         for (auto & s : cat.schemas)
             if (s.schema_name == sch_name)
                 return s;
@@ -941,7 +940,7 @@ AdbcStatusCode ConnectionGetObjects(
     for (const auto & row : tables_result.rows)
     {
         auto cat = getCol(tables_result, row, "table_catalog").value_or("");
-        auto & cat_row = findOrAddCatalog(cat);
+        auto & cat_row = find_or_add_catalog(cat);
 
         if (depth == ADBC_OBJECT_DEPTH_CATALOGS)
             continue; // only catalog names needed; schemas/tables come from the other query path
@@ -950,7 +949,7 @@ AdbcStatusCode ConnectionGetObjects(
         auto tbl = getCol(tables_result, row, "table_name").value_or("");
         auto typ = getCol(tables_result, row, "table_type").value_or("");
 
-        auto & sch_row = findOrAddSchema(cat_row, sch);
+        auto & sch_row = find_or_add_schema(cat_row, sch);
 
         if (include_tables)
             sch_row.tables.push_back({tbl, typ, {}});
