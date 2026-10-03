@@ -82,7 +82,8 @@ private keys, including test material: generate test certificates at run time.
 │   │   ├── Fb2LegacyMode.h                # the only header the main code includes: keys + hook interface
 │   │   ├── Fb2LegacyMode.cpp              # the mode
 │   │   ├── Fb2Http.h/.cpp                 # the mode's own control-plane requests (no redirects followed)
-│   │   └── Fb2TokenClient.h/.cpp          # client_credentials exchange + process-wide token cache
+│   │   ├── Fb2TokenClient.h/.cpp          # client_credentials exchange + process-wide token cache
+│   │   └── Fb2EngineResolver.h/.cpp       # engineUrl → USE DATABASE/ENGINE; Update-Endpoint domain check
 │   ├── Version.h.in                       # → build/generated/Version.h; FIREBOLT_ADBC_VERSION
 │   └── ArrowIpcStream.h/.cpp              # Arrow IPC bytes → ArrowArrayStream via nanoarrow 0.8.0
 │
@@ -100,6 +101,7 @@ private keys, including test material: generate test certificates at run time.
 ├── .github/
 │   └── workflows/
 │       ├── enable-merge-to-main.yaml      # pre-commit + build + clang-tidy + unit + integration + examples on every PR
+│       ├── fb2-live-nightly.yaml          # FB2 only: nightly live suite against a 2.0 account (repo secrets)
 │       └── release.yaml                   # tag v* → multi-arch .so + sha256 + manifest on a release
 │
 └── tests/
@@ -108,7 +110,8 @@ private keys, including test material: generate test certificates at run time.
     │   ├── firebolt_uri_test.cpp          # firebolt:// URI parsing
     │   ├── tls_config_test.cpp            # CA-bundle lookup order
     │   ├── fb2_legacy_test.cpp            # FB2 SaaS (Legacy) mode options
-    │   └── fb2_token_client_test.cpp      # FB2 token request/response parsing and cache expiry
+    │   ├── fb2_token_client_test.cpp      # FB2 token request/response parsing and cache expiry
+    │   └── fb2_engine_resolver_test.cpp   # FB2 engine resolution, Update-Endpoint check, error text
     └── integration/                       # pytest harness — runs inside a runner container
         ├── runner.py                      # spins up runner image + 1-node Firebolt engine,
         │                                  #   exec's pytest. Args: --engine-image, --adbc-binary
@@ -141,6 +144,8 @@ private keys, including test material: generate test certificates at run time.
             ├── security_*/test.py         # regression tests for fixed security issues
             ├── tls/test.py                # https:// via the TLS mock: CA option, strict verification
             ├── fb2_legacy/test.py         # FB2 only: the mode against a mock 2.0 control plane
+            ├── fb2_legacy_live/test.py    # FB2 only, opt-in: a real 2.0 account (FIREBOLT_FB2_* env);
+            │                              #   FIREBOLT_TEST_TARGET=fb2 runs every engine suite there too
             └── struct_type/test.py        # STRUCT / ARRAY(STRUCT) retrieval and ingest
 ```
 

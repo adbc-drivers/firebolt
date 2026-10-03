@@ -37,6 +37,7 @@ struct Fb2HttpResult
     long status = 0;
     std::string body;
     std::string retry_after; // the Retry-After header, if any
+    std::string update_endpoint; // the Firebolt-Update-Endpoint header, if any
 };
 
 // POST an application/x-www-form-urlencoded body.
@@ -44,6 +45,9 @@ Fb2HttpResult postForm(const std::string & url, const std::string & form_body, c
 
 // GET with an optional bearer token.
 Fb2HttpResult getJson(const std::string & url, const std::string & bearer_token, const Transport & transport);
+
+// POST a SQL statement to an engine, as the driver's data plane does.
+Fb2HttpResult postSql(const std::string & url, const std::string & sql, const std::string & bearer_token, const Transport & transport);
 
 // application/x-www-form-urlencoded encoding of one value.
 std::string formEncode(const std::string & value);

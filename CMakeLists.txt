@@ -35,6 +35,7 @@ set(_fb2_sources
     src/fb2/Fb2LegacyMode.cpp
     src/fb2/Fb2Http.cpp
     src/fb2/Fb2TokenClient.cpp
+    src/fb2/Fb2EngineResolver.cpp
 )
 
 # All non-system dependencies must live under adbc/submodule.
@@ -396,8 +397,10 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
     set(_fb2_tests
         tests/unit/fb2_legacy_test.cpp
         tests/unit/fb2_token_client_test.cpp
+        tests/unit/fb2_engine_resolver_test.cpp
         src/fb2/Fb2Http.cpp
         src/fb2/Fb2TokenClient.cpp
+        src/fb2/Fb2EngineResolver.cpp
     )
     add_executable(adbc_driver_tests
         tests/unit/adbc_driver_test.cpp

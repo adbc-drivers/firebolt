@@ -15,10 +15,12 @@
 // FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
 #include "fb2/Fb2LegacyMode.h"
 #include "FireboltUri.h"
+#include "fb2/Fb2EngineResolver.h"
 #include "fb2/Fb2TokenClient.h"
 
 #include <map>
 #include <mutex>
+#include <tuple>
 
 namespace firebolt::adbc::fb2
 {
@@ -49,6 +51,18 @@ namespace
         return url && !url->has_userinfo && (url->scheme == "http" || url->scheme == "https");
     }
 
+    // Resolved endpoints, process-wide like the token cache.  The identity (client
+    // ID, or the pre-acquired token) is in the key so one principal's successful
+    // USE ENGINE never vouches for another's access.
+    struct ResolvedEndpoints
+    {
+        std::string system_engine;
+        std::string engine_endpoint;
+    };
+    using EndpointCacheKey = std::tuple<std::string, std::string, std::string, std::string, std::string>;
+    std::mutex g_endpoint_cache_mutex;
+    std::map<EndpointCacheKey, ResolvedEndpoints> g_endpoint_cache;
+
 } // namespace
 
 struct Fb2LegacyMode::Impl
@@ -63,6 +77,79 @@ struct Fb2LegacyMode::Impl
     bool caching_enabled = true;
     Transport control_plane_transport;
     std::string bearer_token; // the bearer token in use
+    EndpointCacheKey endpoint_cache_key;
+    std::string engine_name;
+    std::string system_engine_url; // the parent domain Firebolt-Update-Endpoint must stay in
+
+    // A new token after a 401.  Caller holds `mu`.
+    bool refreshBearerTokenLocked()
+    {
+        if (token_is_pre_acquired)
+            return false;
+        const std::string rejected = bearer_token;
+        if (caching_enabled)
+        {
+            std::string cached = TokenCache::lookup(token_endpoint, service_account, std::chrono::steady_clock::now());
+            if (!cached.empty() && cached != rejected)
+            {
+                bearer_token = cached; // another connection already refreshed it
+                return true;
+            }
+            TokenCache::invalidate(token_endpoint, service_account);
+        }
+        std::string fresh;
+        if (!acquireToken(token_endpoint, service_account, control_plane_transport, caching_enabled, std::chrono::steady_clock::now, fresh)
+                 .ok())
+            return false;
+        bearer_token = fresh;
+        return true;
+    }
+
+    // A control-plane request, retried once with a fresh token on 401: a cached
+    // token may have been revoked since it was issued.
+    template <class Request>
+    Fb2HttpResult sendWithTokenRefresh(Request && request)
+    {
+        Fb2HttpResult response = request();
+        if (response.transport_ok && response.status == 401 && refreshBearerTokenLocked())
+            response = request();
+        return response;
+    }
+
+    Status resolveEngineEndpoint(const InitInputs & inputs, std::string & engine_url)
+    {
+        const std::string account = *findOption("firebolt.account");
+        const std::string api_endpoint
+            = optionOrDefault("firebolt.api_endpoint", apiEndpointFor(optionOrDefault("firebolt.environment", "app")));
+
+        const auto api_url = parseUrl(api_endpoint); // validateOptions() checked it; a built-in default always parses
+        if (!api_url)
+            return {ADBC_STATUS_INVALID_ARGUMENT, "FB2 SaaS mode: '" + api_endpoint + "' is not a valid control-plane URL"};
+
+        Fb2HttpResult response = sendWithTokenRefresh(
+            [&] { return getJson(engineUrlRequestUrl(api_endpoint, account), bearer_token, control_plane_transport); });
+        if (Status status = parseEngineUrlResponse(response, account, api_url->scheme, system_engine_url); !status.ok())
+            return status;
+
+        // Status and headers only: the body is JSON_Compact because the system
+        // engine's ArrowStream support is not a contract.
+        const std::string system_query_url = system_engine_url + "/?output_format=JSON_Compact";
+        if (!inputs.database.empty())
+        {
+            response = sendWithTokenRefresh([&] {
+                return postSql(system_query_url, useStatement("DATABASE", inputs.database), bearer_token, control_plane_transport);
+            });
+            if (Status status = parseUseResponse(response, "database", inputs.database); !status.ok())
+                return status;
+        }
+        response = sendWithTokenRefresh(
+            [&] { return postSql(system_query_url, useStatement("ENGINE", engine_name), bearer_token, control_plane_transport); });
+        if (Status status = parseUseResponse(response, "engine", engine_name); !status.ok())
+            return status;
+        if (response.update_endpoint.empty())
+            return {ADBC_STATUS_IO, "FB2 SaaS mode: the system engine accepted USE ENGINE but returned no Firebolt-Update-Endpoint"};
+        return resolveUpdateEndpoint(response.update_endpoint, system_engine_url, engine_url);
+    }
 
     std::string optionOrDefault(std::string_view key, std::string fallback) const
     {
@@ -152,7 +239,7 @@ bool Fb2LegacyMode::requested() const
     return !impl->option_values.empty();
 }
 
-Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & /*endpoint*/)
+Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & endpoint)
 {
     std::lock_guard lock(impl->mutex);
     Impl & state = *impl;
@@ -185,7 +272,32 @@ Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & /*endpoint*/
             !status.ok())
             return status;
     }
-    return {ADBC_STATUS_NOT_IMPLEMENTED, "FB2 SaaS mode: engine resolution is not implemented yet"};
+
+    state.engine_name = *state.findOption("firebolt.engine");
+    state.endpoint_cache_key
+        = {state.optionOrDefault("firebolt.api_endpoint", state.optionOrDefault("firebolt.environment", "app")),
+           *state.findOption("firebolt.account"),
+           state.engine_name,
+           state.token_is_pre_acquired ? state.bearer_token : state.service_account.client_id,
+           inputs.database};
+    if (state.caching_enabled)
+    {
+        std::lock_guard cache_lock(g_endpoint_cache_mutex);
+        if (auto it = g_endpoint_cache.find(state.endpoint_cache_key); it != g_endpoint_cache.end())
+        {
+            state.system_engine_url = it->second.system_engine;
+            endpoint = it->second.engine_endpoint;
+            return {};
+        }
+    }
+    if (Status status = state.resolveEngineEndpoint(inputs, endpoint); !status.ok())
+        return status;
+    if (state.caching_enabled)
+    {
+        std::lock_guard cache_lock(g_endpoint_cache_mutex);
+        g_endpoint_cache[state.endpoint_cache_key] = {state.system_engine_url, endpoint};
+    }
+    return {};
 }
 
 std::string Fb2LegacyMode::bearerToken()
@@ -199,38 +311,38 @@ bool Fb2LegacyMode::reauthenticate()
     // Under the lock, so connections that hit 401 together trigger one exchange
     // after another rather than racing; the second finds the fresh token cached.
     std::lock_guard lock(impl->mutex);
-    Impl & state = *impl;
-    if (state.token_is_pre_acquired)
-        return false;
-    const std::string rejected = state.bearer_token;
-    if (state.caching_enabled)
-    {
-        std::string cached = TokenCache::lookup(state.token_endpoint, state.service_account, std::chrono::steady_clock::now());
-        if (!cached.empty() && cached != rejected)
-        {
-            state.bearer_token = cached; // another connection already refreshed it
-            return true;
-        }
-        TokenCache::invalidate(state.token_endpoint, state.service_account);
-    }
-    std::string fresh;
-    if (!acquireToken(
-             state.token_endpoint,
-             state.service_account,
-             state.control_plane_transport,
-             state.caching_enabled,
-             std::chrono::steady_clock::now,
-             fresh)
-             .ok())
-        return false;
-    state.bearer_token = fresh;
-    return true;
+    return impl->refreshBearerTokenLocked();
 }
 
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static): uses the mode's state once engines are resolved
-ResponseEffect Fb2LegacyMode::onResponse(CURL * /*handle*/, long /*http_code*/, bool /*success*/, std::string & /*error_message*/)
+ResponseEffect Fb2LegacyMode::onResponse(CURL * handle, long http_code, bool success, std::string & error_message)
 {
-    return {};
+    std::lock_guard lock(impl->mutex);
+    Impl & state = *impl;
+    ResponseEffect effect;
+    if (success)
+    {
+        // A USE ENGINE run by the caller moves this connection only.
+        struct curl_header * header = nullptr;
+        if (curl_easy_header(handle, "Firebolt-Update-Endpoint", 0, CURLH_HEADER, -1, &header) == CURLHE_OK && header && header->value)
+        {
+            Status status = resolveUpdateEndpoint(header->value, state.system_engine_url, effect.new_endpoint);
+            if (!status.ok())
+            {
+                effect.new_endpoint.clear();
+                effect.endpoint_error = status.message;
+            }
+        }
+        return effect;
+    }
+    bool stopped = false;
+    error_message = explainEngineError(http_code, error_message, stopped);
+    if (stopped)
+    {
+        // The engine may come back elsewhere; resolve afresh next time.
+        std::lock_guard cache_lock(g_endpoint_cache_mutex);
+        g_endpoint_cache.erase(state.endpoint_cache_key);
+    }
+    return effect;
 }
 
 } // namespace firebolt::adbc::fb2
