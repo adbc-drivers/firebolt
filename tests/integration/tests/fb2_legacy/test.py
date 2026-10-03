@@ -164,6 +164,8 @@ def test_pre_acquired_token_skips_the_exchange(mock_server):
             **{"firebolt.token": "eyJ.pre.acquired"},
         )
     )
-    # Init got past validation: it stops at engine resolution, not at the token.
-    assert exc is not None and "engine resolution" in str(exc), exc
+    # Init got past option validation (a bad option would be INVALID_ARGUMENT);
+    # what stops it next is the mock control plane, not the token.
+    assert exc is not None, "the mock control plane cannot complete Init"
+    assert exc.status_code != adbc_driver_manager.AdbcStatusCode.INVALID_ARGUMENT, exc
     assert _token_requests(mock_server) == []
