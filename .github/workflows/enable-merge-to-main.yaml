@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/examples-venv"
           "$RUNNER_TEMP/examples-venv/bin/pip" install --quiet adbc-driver-manager pyarrow
-          for example in examples/python/*.py; do
+          for example in examples/python/*.py examples/python/fb2_only/*.py; do
             echo "--- $example"
             "$RUNNER_TEMP/examples-venv/bin/python" "$example" --help > /dev/null
           done

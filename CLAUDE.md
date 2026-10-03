@@ -50,13 +50,15 @@ private keys, including test material: generate test certificates at run time.
 ├── .rat-excludes / .rat-apache            # license check: files without a header / taken from Apache (adbc.h)
 │
 ├── docs/
-│   └── authentication.md                  # what auth works today + the SDK-spec target model
+│   ├── authentication.md                  # what auth works today + the SDK-spec target model
+│   └── fb2-saas.md                        # FB2 only: the whole user doc for FB2 SaaS (Legacy) mode
 │
 ├── examples/
 │   └── python/                            # runnable, env-var configured, no framework
 │       ├── quickstart.py                  # connect + query, dbapi and low-level paths
 │       ├── query_to_pandas.py             # pyarrow / pandas / polars + batch streaming
-│       └── bulk_ingest.py                 # 4 ingest modes, nested ARRAY/STRUCT, bind_stream
+│       ├── bulk_ingest.py                 # 4 ingest modes, nested ARRAY/STRUCT, bind_stream
+│       └── fb2_only/quickstart.py         # FB2 only: service account + account/engine names
 │
 ├── CMakeLists.txt                         # standalone CMake project; project(VERSION) is authoritative
 ├── CMakePresets.json                      # presets: standalone-clang / standalone-gcc
