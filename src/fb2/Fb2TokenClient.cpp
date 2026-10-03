@@ -17,6 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <tuple>
@@ -102,9 +103,12 @@ Status parseTokenResponse(const Fb2HttpResult & result, const std::string & endp
         return {ADBC_STATUS_IO, std::string(kPrefix) + "the token endpoint " + endpoint + " returned no access_token"};
 
     grant.access_token = body["access_token"].get<std::string>();
-    // A grant without a usable lifetime is used once and not cached.
-    grant.expires_in = std::chrono::seconds(
-        body.contains("expires_in") && body["expires_in"].is_number_integer() ? body["expires_in"].get<long long>() : 0);
+    // A grant without a usable lifetime is used once and not cached.  A year at
+    // most, so that adding it to a steady_clock time point cannot overflow.
+    constexpr long long max_lifetime_sec = 365LL * 24 * 3600;
+    const long long expires_in
+        = body.contains("expires_in") && body["expires_in"].is_number_integer() ? body["expires_in"].get<long long>() : 0;
+    grant.expires_in = std::chrono::seconds(std::min(expires_in, max_lifetime_sec));
     return {};
 }
 
@@ -139,20 +143,15 @@ void TokenCache::clearForTesting()
 }
 
 Status acquireToken(
-    const std::string & endpoint,
-    const Credentials & credentials,
-    const Transport & transport,
-    bool use_cache,
-    const Clock & clock,
-    std::string & token)
+    const std::string & endpoint, const Credentials & credentials, const Transport & transport, bool use_cache, std::string & token)
 {
     if (use_cache)
     {
-        token = TokenCache::lookup(endpoint, credentials, clock());
+        token = TokenCache::lookup(endpoint, credentials, std::chrono::steady_clock::now());
         if (!token.empty())
             return {};
     }
-    const auto requested_at = clock();
+    const auto requested_at = std::chrono::steady_clock::now();
     TokenGrant grant;
     Status status
         = parseTokenResponse(postForm(endpoint, tokenRequestBody(credentials), transport), endpoint, credentials.client_id, grant);

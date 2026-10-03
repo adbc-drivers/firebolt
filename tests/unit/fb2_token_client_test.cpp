@@ -61,12 +61,12 @@ TEST(Fb2TokenClientTest, RequestBodyIsAFormWithTheFixedAudience)
 TEST(Fb2TokenClientTest, GrantParsed)
 {
     TokenGrant grant;
-    Status s = parseTokenResponse(
+    Status status = parseTokenResponse(
         Response(200, R"({"access_token":"eyJ.tok","expires_in":7199,"scope":"service-account","token_type":"bearer"})"),
         kEndpoint,
         kCreds.client_id,
         grant);
-    ASSERT_TRUE(s.ok()) << s.message;
+    ASSERT_TRUE(status.ok()) << status.message;
     EXPECT_EQ(grant.access_token, "eyJ.tok");
     EXPECT_EQ(grant.expires_in, seconds(7199));
 }
@@ -74,15 +74,15 @@ TEST(Fb2TokenClientTest, GrantParsed)
 TEST(Fb2TokenClientTest, InvalidClientIsUnauthenticatedAndNamesTheClientId)
 {
     TokenGrant grant;
-    Status s = parseTokenResponse(
+    Status status = parseTokenResponse(
         Response(401, R"({"error":"invalid_client","error_description":"Client authentication failed"})"),
         kEndpoint,
         kCreds.client_id,
         grant);
-    EXPECT_EQ(s.code, ADBC_STATUS_UNAUTHENTICATED);
-    EXPECT_NE(s.message.find("fbcid_test"), std::string::npos) << s.message;
-    EXPECT_NE(s.message.find("invalid_client"), std::string::npos) << s.message;
-    EXPECT_EQ(s.message.find("SECRET"), std::string::npos) << s.message;
+    EXPECT_EQ(status.code, ADBC_STATUS_UNAUTHENTICATED);
+    EXPECT_NE(status.message.find("fbcid_test"), std::string::npos) << status.message;
+    EXPECT_NE(status.message.find("invalid_client"), std::string::npos) << status.message;
+    EXPECT_EQ(status.message.find("SECRET"), std::string::npos) << status.message;
 }
 
 TEST(Fb2TokenClientTest, RateLimitIsIoAndCarriesRetryAfter)
@@ -90,9 +90,9 @@ TEST(Fb2TokenClientTest, RateLimitIsIoAndCarriesRetryAfter)
     TokenGrant grant;
     auto r = Response(429, R"({"error":"temporarily_unavailable"})");
     r.retry_after = "30";
-    Status s = parseTokenResponse(r, kEndpoint, kCreds.client_id, grant);
-    EXPECT_EQ(s.code, ADBC_STATUS_IO);
-    EXPECT_NE(s.message.find("30"), std::string::npos) << s.message;
+    Status status = parseTokenResponse(r, kEndpoint, kCreds.client_id, grant);
+    EXPECT_EQ(status.code, ADBC_STATUS_IO);
+    EXPECT_NE(status.message.find("30"), std::string::npos) << status.message;
 }
 
 TEST(Fb2TokenClientTest, MalformedSuccessBodiesAreRejected)
@@ -100,8 +100,8 @@ TEST(Fb2TokenClientTest, MalformedSuccessBodiesAreRejected)
     TokenGrant grant;
     for (const char * body : {"", "not json", R"({"expires_in":10})", R"({"access_token":"","expires_in":10})", R"({"access_token":7})"})
     {
-        Status s = parseTokenResponse(Response(200, body), kEndpoint, kCreds.client_id, grant);
-        EXPECT_EQ(s.code, ADBC_STATUS_IO) << body;
+        Status status = parseTokenResponse(Response(200, body), kEndpoint, kCreds.client_id, grant);
+        EXPECT_EQ(status.code, ADBC_STATUS_IO) << body;
     }
 }
 
@@ -112,14 +112,24 @@ TEST(Fb2TokenClientTest, MissingExpiresInMeansDoNotCache)
     EXPECT_EQ(grant.expires_in, seconds(0));
 }
 
+TEST(Fb2TokenClientTest, HugeExpiresInIsBoundedSoTheCacheCannotOverflow)
+{
+    TokenGrant grant;
+    ASSERT_TRUE(
+        parseTokenResponse(Response(200, R"({"access_token":"eyJ.tok","expires_in":9000000000000000})"), kEndpoint, kCreds.client_id, grant)
+            .ok());
+    EXPECT_GT(grant.expires_in, kExpiryMargin);
+    EXPECT_LE(grant.expires_in, seconds(365LL * 24 * 3600));
+}
+
 TEST(Fb2TokenClientTest, TransportFailureIsIo)
 {
     Fb2HttpResult r;
     r.transport_error = "Couldn't connect to server";
     TokenGrant grant;
-    Status s = parseTokenResponse(r, kEndpoint, kCreds.client_id, grant);
-    EXPECT_EQ(s.code, ADBC_STATUS_IO);
-    EXPECT_NE(s.message.find(kEndpoint), std::string::npos) << s.message;
+    Status status = parseTokenResponse(r, kEndpoint, kCreds.client_id, grant);
+    EXPECT_EQ(status.code, ADBC_STATUS_IO);
+    EXPECT_NE(status.message.find(kEndpoint), std::string::npos) << status.message;
 }
 
 TEST(Fb2TokenCacheTest, ValidUntilTheMarginBeforeExpiry)

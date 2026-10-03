@@ -108,7 +108,7 @@ private:
     const FireboltConnection & fb_conn;
 
     std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
-    curl_slist * buildAuthHeader() const;
+    static curl_slist * buildAuthHeader(const std::string & token);
     void applyTlsOptions() const;
     // Sends the request already configured on handle and reads the response.
     // In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.

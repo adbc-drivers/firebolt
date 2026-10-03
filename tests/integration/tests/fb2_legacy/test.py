@@ -137,6 +137,7 @@ def test_rejected_credentials_fail_init_as_unauthenticated(mock_server, client_i
 def test_token_is_cached_across_databases(mock_server, client_id):
     mock_server.queue(**_token_response())
     _open_database(_options(mock_server, client_id))
+    assert len(_token_requests(mock_server)) == 1, "a cold cache exchanges once"
     mock_server.reset()
     _open_database(_options(mock_server, client_id))
     assert _token_requests(mock_server) == [], "a warm cache needs no token request"
@@ -146,6 +147,7 @@ def test_cache_connection_false_exchanges_every_time(mock_server, client_id):
     options = _options(mock_server, client_id, **{"firebolt.cache_connection": "false"})
     mock_server.queue(**_token_response())
     _open_database(options)
+    assert len(_token_requests(mock_server)) == 1
     mock_server.reset()
     mock_server.queue(**_token_response())
     _open_database(options)
@@ -153,7 +155,7 @@ def test_cache_connection_false_exchanges_every_time(mock_server, client_id):
 
 
 def test_pre_acquired_token_skips_the_exchange(mock_server):
-    _open_database(
+    exc = _open_database(
         _options(
             mock_server,
             client_id=None,
@@ -162,4 +164,6 @@ def test_pre_acquired_token_skips_the_exchange(mock_server):
             **{"firebolt.token": "eyJ.pre.acquired"},
         )
     )
+    # Init got past validation: it stops at engine resolution, not at the token.
+    assert exc is not None and "engine resolution" in str(exc), exc
     assert _token_requests(mock_server) == []

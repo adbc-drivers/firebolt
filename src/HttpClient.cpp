@@ -83,11 +83,9 @@ std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::stri
     return url;
 }
 
-curl_slist * HttpClient::buildAuthHeader() const
+curl_slist * HttpClient::buildAuthHeader(const std::string & token)
 {
     curl_slist * headers = nullptr;
-    // FB2 SaaS (Legacy) mode hook: the token comes from the mode's cache.
-    const std::string token = fb_conn.fb2 ? fb_conn.fb2->bearerToken() : fb_conn.token;
     if (!token.empty())
     {
         std::string auth = "Authorization: Bearer " + token;
@@ -133,7 +131,9 @@ void HttpClient::sendWithAuthRetry(HttpResponse & resp, const char * content_typ
     for (int attempt = 0;; ++attempt)
     {
         resp.body.clear();
-        curl_slist * headers = buildAuthHeader();
+        // FB2 SaaS (Legacy) mode hook: the token comes from the mode's cache.
+        const std::string token = fb_conn.fb2 ? fb_conn.fb2->bearerToken() : fb_conn.token;
+        curl_slist * headers = buildAuthHeader(token);
         if (content_type)
             headers = curl_slist_append(headers, content_type);
         curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
@@ -144,7 +144,7 @@ void HttpClient::sendWithAuthRetry(HttpResponse & resp, const char * content_typ
 
         // FB2 SaaS (Legacy) mode hook: one re-authentication and retry on 401.
         // Safe for any statement: a 401 is decided before the statement runs.
-        if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate())
+        if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate(token))
             continue;
         break;
     }

@@ -25,7 +25,6 @@
 #include "fb2/Fb2LegacyMode.h"
 
 #include <chrono>
-#include <functional>
 #include <string>
 
 namespace firebolt::adbc::fb2
@@ -59,8 +58,6 @@ struct TokenGrant
 // wrong.  The client ID may appear in a message; the secret never does.
 Status parseTokenResponse(const Fb2HttpResult & result, const std::string & endpoint, const std::string & client_id, TokenGrant & grant);
 
-using Clock = std::function<std::chrono::steady_clock::time_point()>;
-
 // The process-wide cache.  Keyed by endpoint and both credentials, so a
 // rotated secret never reuses the old one's token.  Thread-safe.
 class TokenCache
@@ -76,11 +73,6 @@ public:
 
 // Exchange the credentials, through the cache unless `use_cache` is false.
 Status acquireToken(
-    const std::string & endpoint,
-    const Credentials & credentials,
-    const Transport & transport,
-    bool use_cache,
-    const Clock & clock,
-    std::string & token);
+    const std::string & endpoint, const Credentials & credentials, const Transport & transport, bool use_cache, std::string & token);
 
 } // namespace firebolt::adbc::fb2

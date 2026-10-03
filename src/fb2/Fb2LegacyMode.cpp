@@ -164,9 +164,11 @@ Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & /*endpoint*/
     state.token_endpoint
         = state.optionOrDefault("firebolt.auth_endpoint", tokenEndpointFor(state.optionOrDefault("firebolt.environment", "app")));
 
-    if (!inputs.token.empty())
+    // Assigned on both branches: an Init retried after a failure may switch from
+    // a pre-acquired token to credentials.
+    state.token_is_pre_acquired = !inputs.token.empty();
+    if (state.token_is_pre_acquired)
     {
-        state.token_is_pre_acquired = true;
         state.bearer_token = inputs.token;
     }
     else
@@ -176,12 +178,7 @@ Status Fb2LegacyMode::init(const InitInputs & inputs, std::string & /*endpoint*/
             = {state.optionOrDefault("username", state.optionOrDefault("firebolt.client_id", "")),
                state.optionOrDefault("password", state.optionOrDefault("firebolt.client_secret", ""))};
         if (Status status = acquireToken(
-                state.token_endpoint,
-                state.service_account,
-                state.control_plane_transport,
-                state.caching_enabled,
-                std::chrono::steady_clock::now,
-                state.bearer_token);
+                state.token_endpoint, state.service_account, state.control_plane_transport, state.caching_enabled, state.bearer_token);
             !status.ok())
             return status;
     }
@@ -194,34 +191,29 @@ std::string Fb2LegacyMode::bearerToken()
     return impl->bearer_token;
 }
 
-bool Fb2LegacyMode::reauthenticate()
+bool Fb2LegacyMode::reauthenticate(const std::string & rejected_token)
 {
     // Under the lock, so connections that hit 401 together trigger one exchange
-    // after another rather than racing; the second finds the fresh token cached.
+    // after another rather than racing; the second finds the token it sent
+    // already replaced.
     std::lock_guard lock(impl->mutex);
     Impl & state = *impl;
     if (state.token_is_pre_acquired)
         return false;
-    const std::string rejected = state.bearer_token;
+    if (state.bearer_token != rejected_token)
+        return true; // another connection of this database already refreshed it
     if (state.caching_enabled)
     {
         std::string cached = TokenCache::lookup(state.token_endpoint, state.service_account, std::chrono::steady_clock::now());
-        if (!cached.empty() && cached != rejected)
+        if (!cached.empty() && cached != rejected_token)
         {
-            state.bearer_token = cached; // another connection already refreshed it
+            state.bearer_token = cached; // another database already refreshed it
             return true;
         }
         TokenCache::invalidate(state.token_endpoint, state.service_account);
     }
     std::string fresh;
-    if (!acquireToken(
-             state.token_endpoint,
-             state.service_account,
-             state.control_plane_transport,
-             state.caching_enabled,
-             std::chrono::steady_clock::now,
-             fresh)
-             .ok())
+    if (!acquireToken(state.token_endpoint, state.service_account, state.control_plane_transport, state.caching_enabled, fresh).ok())
         return false;
     state.bearer_token = fresh;
     return true;
