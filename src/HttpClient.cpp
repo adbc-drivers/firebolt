@@ -16,6 +16,7 @@
 #include "FireboltAdbcConnection.h"
 #include "FireboltAdbcDatabase.h"
 #include "HttpHeaderParse.h"
+#include "fb2/Fb2LegacyMode.h"
 
 #include <cstring>
 #include <stdexcept>
@@ -64,7 +65,7 @@ std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::stri
 {
     // Use the endpoint URL verbatim — do not append a trailing slash so that
     // paths specified by the user (e.g. "http://host/query") are preserved.
-    std::string url = fb_conn.db->url;
+    std::string url = fb_conn.url;
 
     bool first = (url.find('?') == std::string::npos);
     auto add_param = [&](const std::string & k, const std::string & v) {
@@ -85,9 +86,11 @@ std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::stri
 curl_slist * HttpClient::buildAuthHeader() const
 {
     curl_slist * headers = nullptr;
-    if (!fb_conn.token.empty())
+    // FB2 SaaS (Legacy) mode hook: the token comes from the mode's cache.
+    const std::string token = fb_conn.fb2 ? fb_conn.fb2->bearerToken() : fb_conn.token;
+    if (!token.empty())
     {
-        std::string auth = "Authorization: Bearer " + fb_conn.token;
+        std::string auth = "Authorization: Bearer " + token;
         headers = curl_slist_append(headers, auth.c_str());
     }
     headers = curl_slist_append(headers, "Firebolt-Protocol-Version: 2.4");
@@ -107,6 +110,51 @@ void HttpClient::parseResponseHeaders(HttpResponse & resp) const
     resp.reset_session = shouldResetSession(handle);
     resp.update_params = parseUpdateParameters(handle);
     resp.remove_params = parseRemoveParameters(handle);
+
+    // FB2 SaaS (Legacy) mode hook: Firebolt-Update-Endpoint and FB2 error messages.
+    if (fb_conn.fb2)
+    {
+        auto effect = fb_conn.fb2->onResponse(handle, resp.http_code, resp.isSuccess(), resp.error_message);
+        if (!effect.endpoint_error.empty())
+        {
+            // A redirect the mode refused: fail the request rather than use or drop it silently.
+            resp.curl_code = CURLE_WEIRD_SERVER_REPLY;
+            resp.error_message = effect.endpoint_error;
+        }
+        else
+            resp.new_endpoint = effect.new_endpoint;
+    }
+}
+
+void HttpClient::sendWithAuthRetry(HttpResponse & resp, const char * content_type)
+{
+    // The headers are rebuilt per attempt: a retry after re-authentication must
+    // carry the new token.
+    for (int attempt = 0;; ++attempt)
+    {
+        resp.body.clear();
+        curl_slist * headers = buildAuthHeader();
+        if (content_type)
+            headers = curl_slist_append(headers, content_type);
+        curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
+        resp.curl_code = curl_easy_perform(handle);
+        curl_slist_free_all(headers);
+        curl_easy_setopt(handle, CURLOPT_HTTPHEADER, nullptr);
+        curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
+
+        // FB2 SaaS (Legacy) mode hook: one re-authentication and retry on 401.
+        // Safe for any statement: a 401 is decided before the statement runs.
+        if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate())
+            continue;
+        break;
+    }
+
+    if (resp.curl_code != CURLE_OK)
+        resp.error_message = std::string("curl error: ") + curl_easy_strerror(resp.curl_code);
+    else if (!resp.isSuccess())
+        resp.error_message = std::string(resp.body.begin(), resp.body.end());
+
+    parseResponseHeaders(resp);
 }
 
 HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
@@ -128,22 +176,8 @@ HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unorde
     curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
     applyTlsOptions();
 
-    curl_slist * auth_headers = buildAuthHeader();
     // Content-Type: text/plain so the server knows body is raw SQL
-    auth_headers = curl_slist_append(auth_headers, "Content-Type: text/plain; charset=utf-8");
-    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, auth_headers);
-
-    resp.curl_code = curl_easy_perform(handle);
-    curl_slist_free_all(auth_headers);
-
-    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
-
-    if (resp.curl_code != CURLE_OK)
-        resp.error_message = curl_easy_strerror(resp.curl_code);
-    else if (!resp.isSuccess())
-        resp.error_message = std::string(resp.body.begin(), resp.body.end());
-
-    parseResponseHeaders(resp);
+    sendWithAuthRetry(resp, "Content-Type: text/plain; charset=utf-8");
     return resp;
 }
 
@@ -163,10 +197,6 @@ HttpResponse HttpClient::executeInsert(
     curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
     applyTlsOptions();
 
-    // Set auth header
-    curl_slist * auth_headers = buildAuthHeader();
-    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, auth_headers);
-
     // Build multipart/form-data using curl_mime
     curl_mime * mime = curl_mime_init(handle);
 
@@ -185,18 +215,9 @@ HttpResponse HttpClient::executeInsert(
 
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
-    resp.curl_code = curl_easy_perform(handle);
-    curl_slist_free_all(auth_headers);
+    sendWithAuthRetry(resp, nullptr);
+    curl_easy_setopt(handle, CURLOPT_MIMEPOST, nullptr);
     curl_mime_free(mime);
-
-    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
-
-    if (resp.curl_code != CURLE_OK)
-        resp.error_message = curl_easy_strerror(resp.curl_code);
-    else if (!resp.isSuccess())
-        resp.error_message = std::string(resp.body.begin(), resp.body.end());
-
-    parseResponseHeaders(resp);
     return resp;
 }
 

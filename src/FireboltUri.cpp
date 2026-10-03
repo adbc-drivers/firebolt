@@ -17,6 +17,7 @@
 #include <curl/curl.h>
 
 #include <cstring>
+#include <locale>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,9 +43,15 @@ namespace
         return std::string(owned.get());
     }
 
+    // ASCII letters to lower case, in place, as the classic "C" locale defines them.
+    void lowerCaseInPlace(std::string & text)
+    {
+        std::use_facet<std::ctype<char>>(std::locale::classic()).tolower(text.data(), text.data() + text.size());
+    }
+
 } // namespace
 
-std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept
+std::variant<NotFireboltUri, FireboltUri, Status> parseFireboltUri(const std::string & uri) noexcept
 try
 {
     const size_t authority_start = std::strlen(kScheme);
@@ -58,7 +65,7 @@ try
     // the URI is echoed back, since it holds a secret.
     if (uri.find('@') != std::string::npos)
     {
-        return FireboltUriError{
+        return Status{
             ADBC_STATUS_NOT_IMPLEMENTED,
             "Database 'uri' carries credentials (user:password@), which this driver does not support yet; "
             "remove them and pass a bearer token in 'firebolt.token'. A literal '@' (for example in a "
@@ -69,18 +76,18 @@ try
     // older account-based DSN; here an empty authority means no host.
     if (uri.size() == authority_start || uri[authority_start] == '/' || uri[authority_start] == '?')
     {
-        return FireboltUriError{
+        return Status{
             ADBC_STATUS_INVALID_ARGUMENT,
             "Database 'uri' has no host; got '" + uri + "'. Expected firebolt://<host>[:<port>]/[<database>]"};
     }
 
     const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), &curl_url_cleanup);
     if (!url)
-        return FireboltUriError{ADBC_STATUS_INTERNAL, "out of memory"};
+        return Status{ADBC_STATUS_INTERNAL, "out of memory"};
     const CURLUcode rc = curl_url_set(url.get(), CURLUPART_URL, uri.c_str(), CURLU_NON_SUPPORT_SCHEME);
     if (rc != CURLUE_OK)
     {
-        return FireboltUriError{
+        return Status{
             ADBC_STATUS_INVALID_ARGUMENT,
             std::string("Database 'uri' is not a valid firebolt:// URI (") + curl_url_strerror(rc) + "); got '" + uri + "'"};
     }
@@ -92,13 +99,12 @@ try
     const std::string segment = urlPart(url.get(), CURLUPART_PATH).value_or("/").substr(1);
     if (segment.find('/') != std::string::npos)
     {
-        return FireboltUriError{ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' path must be a single database name; got '" + segment + "'"};
+        return Status{ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' path must be a single database name; got '" + segment + "'"};
     }
     const std::optional<std::string> decoded_path = urlPart(url.get(), CURLUPART_PATH, CURLU_URLDECODE);
     if (!decoded_path)
     {
-        return FireboltUriError{
-            ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' has a database name that does not decode; got '" + segment + "'"};
+        return Status{ADBC_STATUS_INVALID_ARGUMENT, "Database 'uri' has a database name that does not decode; got '" + segment + "'"};
     }
     std::string database = decoded_path->substr(1);
 
@@ -120,8 +126,7 @@ try
         const std::string value = eq == std::string::npos ? "" : pair.substr(eq + 1);
         if (key != "ssl_mode")
         {
-            return FireboltUriError{
-                ADBC_STATUS_NOT_FOUND, "Unknown query parameter '" + key + "' in database 'uri'; the supported one is ssl_mode"};
+            return Status{ADBC_STATUS_NOT_FOUND, "Unknown query parameter '" + key + "' in database 'uri'; the supported one is ssl_mode"};
         }
         ssl_mode = value;
     }
@@ -134,7 +139,7 @@ try
     else if (ssl_mode == "verify-ca" || ssl_mode == "require")
     {
         // Both skip part of certificate verification, which has no off switch here.
-        return FireboltUriError{
+        return Status{
             ADBC_STATUS_NOT_IMPLEMENTED,
             "ssl_mode=" + ssl_mode
                 + " is not supported: this driver always verifies the certificate and host name. "
@@ -142,7 +147,7 @@ try
     }
     else
     {
-        return FireboltUriError{ADBC_STATUS_INVALID_ARGUMENT, "ssl_mode must be verify-full or disable; got '" + ssl_mode + "'"};
+        return Status{ADBC_STATUS_INVALID_ARGUMENT, "ssl_mode must be verify-full or disable; got '" + ssl_mode + "'"};
     }
 
     return FireboltUri{transport + authority, std::move(database)};
@@ -151,7 +156,29 @@ catch (...)
 {
     // Only allocation can fail.  The message fits in std::string's inline
     // buffer, so building this error does not allocate and cannot throw again.
-    return FireboltUriError{ADBC_STATUS_INTERNAL, "out of memory"};
+    return Status{ADBC_STATUS_INTERNAL, "out of memory"};
+}
+
+std::optional<ParsedUrl> parseUrl(const std::string & url) noexcept
+try
+{
+    const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> parsed(curl_url(), &curl_url_cleanup);
+    if (!parsed || curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), CURLU_NON_SUPPORT_SCHEME) != CURLUE_OK)
+        return std::nullopt;
+    std::optional<std::string> scheme = urlPart(parsed.get(), CURLUPART_SCHEME); // libcurl lowercases it
+    std::optional<std::string> host = urlPart(parsed.get(), CURLUPART_HOST);
+    if (!scheme || !host || host->empty())
+        return std::nullopt;
+    lowerCaseInPlace(*host); // host names are case-insensitive; callers compare with ==
+    return ParsedUrl{
+        std::move(*scheme),
+        std::move(*host),
+        urlPart(parsed.get(), CURLUPART_PORT, CURLU_DEFAULT_PORT).value_or(""),
+        urlPart(parsed.get(), CURLUPART_USER).has_value()};
+}
+catch (...)
+{
+    return std::nullopt;
 }
 
 } // namespace firebolt::adbc

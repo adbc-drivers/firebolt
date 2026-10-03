@@ -78,6 +78,9 @@ private keys, including test material: generate test certificates at run time.
 │   ├── DescribeParameters.h/.cpp          # describe_parameters JSON → ADBC parameter schema
 │   ├── ScopeGuard.h                       # RAII exit guard
 │   ├── TlsConfig.h/.cpp                   # CA-bundle choice at DatabaseInit (option, SSL_CERT_FILE, distro paths)
+│   ├── fb2/                               # FB2 SaaS (Legacy) mode — isolated, see the design decision
+│   │   ├── Fb2LegacyMode.h                # the only header the main code includes: keys + hook interface
+│   │   └── Fb2LegacyMode.cpp              # the mode
 │   ├── Version.h.in                       # → build/generated/Version.h; FIREBOLT_ADBC_VERSION
 │   └── ArrowIpcStream.h/.cpp              # Arrow IPC bytes → ArrowArrayStream via nanoarrow 0.8.0
 │
@@ -100,7 +103,9 @@ private keys, including test material: generate test certificates at run time.
 └── tests/
     ├── unit/
     │   ├── adbc_driver_test.cpp           # Google Test unit tests (no server needed)
-    │   └── firebolt_uri_test.cpp          # firebolt:// URI parsing
+    │   ├── firebolt_uri_test.cpp          # firebolt:// URI parsing
+    │   ├── tls_config_test.cpp            # CA-bundle lookup order
+    │   └── fb2_legacy_test.cpp            # FB2 SaaS (Legacy) mode options
     └── integration/                       # pytest harness — runs inside a runner container
         ├── runner.py                      # spins up runner image + 1-node Firebolt engine,
         │                                  #   exec's pytest. Args: --engine-image, --adbc-binary
@@ -304,6 +309,18 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
   Deliberately **not** done: `-Os`, which would save another 0.5 MB by slowing the Arrow
   and JSON hot paths, and stripping the symbol table, which would cost readable crash
   stacks.
+- **FB2 SaaS (Legacy) mode is isolated, and named as such** — support for Firebolt 2.0
+  SaaS engines (v5+): service-account credentials plus `firebolt.account`/`engine`,
+  exchanged for a token and resolved to an engine URL through the 2.0 control plane. It
+  is a side mode, not the driver's model, so every line of it lives
+  in `src/fb2/` under the `firebolt::adbc::fb2` namespace and a
+  `// FB2 SaaS (Legacy) mode` banner. The main code holds one optional
+  `std::shared_ptr<Fb2LegacyMode>` (database, copied to each connection; null on the Core
+  path) and calls it only at sites marked `FB2 SaaS (Legacy) mode hook`: option claim
+  (`DatabaseSetOption`), `DatabaseInit`, the bearer token and the one 401 retry
+  (`HttpClient`), and the response hook (Firebolt-Update-Endpoint, FB2 error text).
+  It is always built: one configuration, no switch. Do not add FB2 behaviour outside the directory; add a hook. In user docs
+  the feature is "FB2 only" and lives in its own section, never in the main tables.
 - **The CA bundle is chosen at run time, never compiled in** — curl's configure step
   records the build machine's bundle path, which names the Ubuntu builder image's layout
   and is wrong on RHEL, Amazon Linux or SUSE. The build sets `CURL_CA_BUNDLE`/`CURL_CA_PATH`

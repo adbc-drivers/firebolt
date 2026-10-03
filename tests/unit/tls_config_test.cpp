@@ -52,7 +52,7 @@ TEST(CaBundleTest, ConfiguredPathWins)
     FakeHost host{{{"SSL_CERT_FILE", "/env/ca.pem"}}, {"/opt/ca.pem", "/env/ca.pem", kStandardCaBundlePaths.front()}};
     auto r = host.resolve("/opt/ca.pem");
     EXPECT_EQ(r.path, "/opt/ca.pem");
-    EXPECT_TRUE(r.error.empty());
+    EXPECT_TRUE(r.status.ok()) << r.status.message;
 }
 
 TEST(CaBundleTest, MissingConfiguredPathIsAConfigurationErrorNotAFallThrough)
@@ -60,9 +60,9 @@ TEST(CaBundleTest, MissingConfiguredPathIsAConfigurationErrorNotAFallThrough)
     FakeHost host{{}, {kStandardCaBundlePaths.front()}};
     auto r = host.resolve("/no/such/ca.pem");
     EXPECT_TRUE(r.path.empty());
-    EXPECT_TRUE(r.configuration_error);
-    EXPECT_NE(r.error.find("/no/such/ca.pem"), std::string::npos) << r.error;
-    EXPECT_NE(r.error.find("firebolt.ssl_certificate_path"), std::string::npos) << r.error;
+    EXPECT_EQ(r.status.code, ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_NE(r.status.message.find("/no/such/ca.pem"), std::string::npos) << r.status.message;
+    EXPECT_NE(r.status.message.find("firebolt.ssl_certificate_path"), std::string::npos) << r.status.message;
 }
 
 TEST(CaBundleTest, SslCertFileBeatsStandardPaths)
@@ -76,8 +76,8 @@ TEST(CaBundleTest, MissingSslCertFileIsAConfigurationError)
     FakeHost host{{{"SSL_CERT_FILE", "/env/missing.pem"}}, {kStandardCaBundlePaths.front()}};
     auto r = host.resolve("");
     EXPECT_TRUE(r.path.empty());
-    EXPECT_TRUE(r.configuration_error);
-    EXPECT_NE(r.error.find("SSL_CERT_FILE"), std::string::npos) << r.error;
+    EXPECT_EQ(r.status.code, ADBC_STATUS_INVALID_ARGUMENT);
+    EXPECT_NE(r.status.message.find("SSL_CERT_FILE"), std::string::npos) << r.status.message;
 }
 
 TEST(CaBundleTest, FirstExistingStandardPathIsUsed)
@@ -100,8 +100,8 @@ TEST(CaBundleTest, NothingFoundNamesEveryPathTriedAndTheFix)
     FakeHost host;
     auto r = host.resolve("");
     EXPECT_TRUE(r.path.empty());
-    EXPECT_FALSE(r.configuration_error);
+    EXPECT_EQ(r.status.code, ADBC_STATUS_INVALID_STATE);
     for (const auto & p : kStandardCaBundlePaths)
-        EXPECT_NE(r.error.find(p), std::string::npos) << "missing " << p << " in: " << r.error;
-    EXPECT_NE(r.error.find("firebolt.ssl_certificate_path"), std::string::npos) << r.error;
+        EXPECT_NE(r.status.message.find(p), std::string::npos) << "missing " << p << " in: " << r.status.message;
+    EXPECT_NE(r.status.message.find("firebolt.ssl_certificate_path"), std::string::npos) << r.status.message;
 }

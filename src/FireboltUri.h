@@ -14,8 +14,10 @@
 
 #pragma once
 
+#include "Status.h"
 #include "adbc.h"
 
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -40,14 +42,21 @@ struct NotFireboltUri
 {
 };
 
-// A firebolt:// uri that cannot be used, with the status to report it under.
-struct FireboltUriError
+// A firebolt:// uri that cannot be used comes back as the Status to report it
+// under.  Never throws: running out of memory comes back as a Status too.
+std::variant<NotFireboltUri, FireboltUri, Status> parseFireboltUri(const std::string & uri) noexcept;
+
+// An absolute URL as libcurl reads it, for checks on where a request will go.
+struct ParsedUrl
 {
-    AdbcStatusCode code;
-    std::string message;
+    std::string scheme; // lower case
+    std::string host; // lower case; an IPv6 literal keeps its brackets
+    std::string port; // the explicit port, or the scheme's default one
+    bool has_userinfo = false; // user[:password]@ before the host
 };
 
-// Never throws: running out of memory comes back as a FireboltUriError.
-std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept;
+// nullopt when libcurl does not accept `url` as an absolute URL with a host, or
+// on allocation failure.  Never throws.
+std::optional<ParsedUrl> parseUrl(const std::string & url) noexcept;
 
 } // namespace firebolt::adbc
