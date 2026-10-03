@@ -210,61 +210,16 @@ setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 
 ## Code style and naming conventions
 
-The linters (`pre-commit run --all-files`, `./scripts/clang-tidy.sh`) enforce formatting
-and the mechanical naming rules in `.clang-tidy`. Everything below is what they cannot
-check, gathered from code review; follow it in new code and when touching old code.
+Beyond what pre-commit and clang-tidy enforce:
 
-### Names
-
-- **Say what it is or does; no vague or one-letter names.** Not `s`, `r`, `m`, `a`, `b`,
-  `h`, `v`, `in`, `mu`, `get()`, `perform()`, `credential()`, but `status`, `response`,
-  `state`, `inputs`, `mutex`, `findOption()`, `sendWithAuthRetry()`, `readCredential()`.
-  A member says what it holds (`bearer_token`, `option_values`, `caching_enabled`), a
-  function what it does beyond the obvious (`sendWithAuthRetry` retries after
-  re-authenticating, which plain `curl_easy_perform` does not). Short names survive only
-  as an idiom: `it` for an iterator, `c` for a character in a loop.
-- **Don't repeat the namespace in names, or vice versa.** The FB2 code lives in
-  `firebolt::adbc::fb2` and `src/fb2/`; "Legacy" appears once, in class names
-  (`Fb2LegacyMode`), not again in the namespace or directory.
-- **Local constants follow local-variable case** (`max_length`, not `kMax`); clang-tidy
-  rejects the `k` prefix on locals. File-scope constants may keep it (`kOptionKeys`).
-
-### Code
-
-- **No hand-written parsers.** Anything URL-shaped goes through libcurl's `curl_url`, via
-  `parseUrl()` / `parseFireboltUri()` in `FireboltUri.{h,cpp}`; JSON through
-  `nlohmann/json`; IP literals through `inet_pton`. Extend those shared helpers rather than
-  splitting strings on `"://"`, `':'` or `'/'`, writing character whitelists, or cutting
-  values out of server messages. Check the property that matters, e.g. "libcurl reads this
-  URL's host as `id.<env>.firebolt.io`", not the characters that happen to produce it.
-- **Prefer the library's own operation, and name the call when it is long.** No inline
-  lambdas re-implementing what a library provides; a long library call goes into a small
-  named helper in the file's anonymous namespace (`lowerCaseInPlace()` wraps
-  `std::ctype<char>::tolower`).
-- **Look a value up once.** Use the if-with-initializer idiom,
-  `if (const std::string * account = findOption("firebolt.account"); !account || account->empty())`,
-  rather than calling the lookup twice.
-- **One `Status`.** A status code and its message is `firebolt::adbc::Status`
-  (`src/Status.h`); don't add another `{AdbcStatusCode, std::string}` struct.
-- **`NOLINT` only with a reason**, in the form
-  `// NOLINTNEXTLINE(check-name): why`, and remove it once the reason is gone.
-- **Don't reformat code you are not changing.** Formatting belongs to pre-commit; a change
-  that also re-wraps or reorders unrelated lines (an `#include` moved by a different
-  clang-format version, for instance) is reverted to the lines it meant to touch.
-- **One configuration.** No build switches to compile a feature in or out; isolation comes
-  from the code's structure (see the FB2 decision below), not from a second build.
-
-### Text the user sees
-
-- **FB2 naming.** In code the feature is "FB2 SaaS (Legacy) mode" (banners, comments, the
-  `FB2 SaaS (Legacy) mode hook` markers); in user-visible error messages the prefix is
-  `FB2 SaaS mode: `; in user docs it is "FB2 only", in a section of its own, never in the
-  main tables.
-- **Never mention other drivers** (JDBC or any other) in docs, docstrings, comments or PR
-  text, not even as a comparison or an "equivalent" column. They may inspire a design;
-  the text describes this driver on its own terms.
-- **Errors say what to do and never echo a secret.** Name the option to fix or the action
-  to take; a client ID may appear in a message, a secret or token never does.
+- Descriptive names: no one-letter or vague names (`s`, `get()`, `perform()`); don't repeat the namespace in a name.
+- No hand-written parsing: URLs via `parseUrl()`/`parseFireboltUri()` (libcurl), JSON via nlohmann/json, IPs via `inet_pton`.
+- Use library calls, not inline lambdas; wrap a long call in a named helper in the anonymous namespace.
+- Look a value up once: `if (auto * x = find(k); !x || x->empty())`.
+- One `firebolt::adbc::Status` for a status code and message.
+- `NOLINT` only with a reason; don't reformat lines you are not changing; no build switches for features.
+- FB2: "FB2 SaaS (Legacy) mode" in code, `FB2 SaaS mode: ` in error messages, "FB2 only" in docs.
+- Never mention other drivers (e.g. JDBC) in docs or comments; errors never echo a secret.
 
 ## Key Design Decisions
 
