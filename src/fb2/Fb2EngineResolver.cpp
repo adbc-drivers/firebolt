@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
+// FB2 SaaS (Legacy) mode. Keep isolated; see AGENTS.md.
 #include "fb2/Fb2EngineResolver.h"
 #include "FireboltUri.h"
 
