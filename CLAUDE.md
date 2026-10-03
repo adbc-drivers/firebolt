@@ -212,6 +212,17 @@ default ports — so the 1-node fixture writes no config at all. The legacy
 `--node N` + `/firebolt-core/config.json` startup contract is gone; a multi-node
 setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
 
+## Code style and naming conventions
+
+Beyond what pre-commit and clang-tidy enforce:
+
+- Descriptive names: no one-letter or vague names (`s`, `get()`, `perform()`); don't repeat the namespace in a name.
+- No hand-written parsing: URLs via `parseUrl()`/`parseFireboltUri()` (libcurl), JSON via nlohmann/json, IPs via `inet_pton`.
+- Use library calls, not inline lambdas; wrap a long call in a named helper in the anonymous namespace.
+- Look a value up once: `if (auto * x = find(k); !x || x->empty())`.
+- One `firebolt::adbc::Status` for a status code and message.
+- `NOLINT` only with a reason; don't reformat lines you are not changing; no build switches for features.
+
 ## Key Design Decisions
 
 - **No packdb internal headers** — the `.so` must be loadable outside the server process.
