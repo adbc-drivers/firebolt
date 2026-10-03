@@ -20,6 +20,7 @@
 #include <string>
 
 using namespace firebolt::adbc::fb2;
+using firebolt::adbc::Status;
 
 namespace
 {
