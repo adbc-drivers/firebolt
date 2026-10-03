@@ -459,7 +459,7 @@ and git.
 
 `scripts/build.sh` builds inside a pinned Ubuntu 22.04 + clang-18 image, so the
 resulting `.so` runs on older glibc than the host. Details and the dependency
-policy are in [CONTRIBUTING.md](CONTRIBUTING.md) and [CLAUDE.md](CLAUDE.md).
+policy are in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ## Documentation
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
+// FB2 SaaS (Legacy) mode. Keep isolated; see AGENTS.md.
 //
 // Drives the mode through the public ADBC entry points, so these tests hold whatever the module looks like
 // inside.

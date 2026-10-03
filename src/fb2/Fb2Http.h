@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
+// FB2 SaaS (Legacy) mode. Keep isolated; see AGENTS.md.
 //
 // The mode's own control-plane requests (token exchange, engineUrl), on a
 // short-lived curl handle so they never disturb a connection's handle.

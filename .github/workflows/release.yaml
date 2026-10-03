@@ -106,7 +106,7 @@ jobs:
 
       # Fail loudly rather than shipping a .so that needs libraries the user
       # does not have. Only the C runtime and the dynamic loader are expected;
-      # everything else is linked statically on purpose (see CLAUDE.md).
+      # everything else is linked statically on purpose (see AGENTS.md).
       - name: Check runtime dependencies
         run: |
           set -euo pipefail

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
+// FB2 SaaS (Legacy) mode. Keep isolated; see AGENTS.md.
 //
 // Lets the driver reach engines (v5+) deployed in Firebolt 2.0 SaaS:
 // service-account credentials plus account and engine names, exchanged for a

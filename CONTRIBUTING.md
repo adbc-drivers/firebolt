@@ -118,7 +118,7 @@ Delete `build/` and re-run.
   the Apache License:" line, and is listed in `.rat-apache`.
 - **No dependency discovery in CMake.** No `find_package`, `find_library`,
   `find_path`, `find_program`, or `FetchContent` for required dependencies —
-  everything must exist under `submodule/`. See [CLAUDE.md](CLAUDE.md) for why.
+  everything must exist under `submodule/`. See [AGENTS.md](AGENTS.md) for why.
 - **No packdb internal headers.** The `.so` has to load outside the server
   process.
 - **Only `AdbcDriverInit` and `AdbcDriverFireboltInit` are exported**, enforced by
@@ -169,7 +169,7 @@ make specific claims, and a stale claim is worse than no claim:
 | [README.md](README.md) | "Supported today", the Feature & Type Support tables, troubleshooting table |
 | [OPTIONS.md](OPTIONS.md) | Every option, every error status, the type mapping |
 | [docs/authentication.md](docs/authentication.md) | What works now and the gaps against the SDK auth spec |
-| [CLAUDE.md](CLAUDE.md) | Architecture and design decisions |
+| [AGENTS.md](AGENTS.md) | Architecture and design decisions |
 
 ## Pull requests
 

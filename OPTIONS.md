@@ -86,7 +86,7 @@ Errors:
 All of these surface when you **open** the database, not from the individual
 option call — so in Python they are raised by `dbapi.connect(...)`, which is where
 you passed `db_kwargs` anyway. (The reason is in
-[CLAUDE.md](CLAUDE.md): the driver manager replays pre-`Init` options from inside
+[AGENTS.md](AGENTS.md): the driver manager replays pre-`Init` options from inside
 `AdbcDatabaseInit`, and its failure path there has a one-byte heap overflow that
 aborts the process, so the driver keeps out of it.) An option set *after* the
 database is open is refused on the spot.

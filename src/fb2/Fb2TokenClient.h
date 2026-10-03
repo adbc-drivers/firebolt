@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// FB2 SaaS (Legacy) mode. Keep isolated; see CLAUDE.md.
+// FB2 SaaS (Legacy) mode. Keep isolated; see AGENTS.md.
 //
 // Service-account credentials → bearer token, through the Firebolt 2.0 token
 // endpoint (https://id.<env>.firebolt.io/oauth/token, OAuth 2.0
