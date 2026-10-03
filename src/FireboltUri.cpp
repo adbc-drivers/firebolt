@@ -16,9 +16,8 @@
 
 #include <curl/curl.h>
 
-#include <algorithm>
-#include <cctype>
 #include <cstring>
+#include <locale>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,6 +41,12 @@ namespace
             return std::nullopt;
         const std::unique_ptr<char, decltype(&curl_free)> owned(value, &curl_free);
         return std::string(owned.get());
+    }
+
+    // ASCII letters to lower case, in place, as the classic "C" locale defines them.
+    void lowerCaseInPlace(std::string & text)
+    {
+        std::use_facet<std::ctype<char>>(std::locale::classic()).tolower(text.data(), text.data() + text.size());
     }
 
 } // namespace
@@ -160,17 +165,14 @@ try
     const std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> parsed(curl_url(), &curl_url_cleanup);
     if (!parsed || curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), CURLU_NON_SUPPORT_SCHEME) != CURLUE_OK)
         return std::nullopt;
-    const auto lower = [](std::string s) {
-        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    };
-    std::optional<std::string> scheme = urlPart(parsed.get(), CURLUPART_SCHEME);
+    std::optional<std::string> scheme = urlPart(parsed.get(), CURLUPART_SCHEME); // libcurl lowercases it
     std::optional<std::string> host = urlPart(parsed.get(), CURLUPART_HOST);
     if (!scheme || !host || host->empty())
         return std::nullopt;
+    lowerCaseInPlace(*host); // host names are case-insensitive; callers compare with ==
     return ParsedUrl{
-        lower(*scheme),
-        lower(*host),
+        std::move(*scheme),
+        std::move(*host),
         urlPart(parsed.get(), CURLUPART_PORT, CURLU_DEFAULT_PORT).value_or(""),
         urlPart(parsed.get(), CURLUPART_USER).has_value()};
 }
