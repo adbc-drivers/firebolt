@@ -31,7 +31,11 @@ option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into adb
 option(FIREBOLT_ADBC_STRIP_DEP_DEBUG "Strip debug info from dependency artifacts" ON)
 option(WITH_SSL "Build curl with SSL support via BoringSSL (what ships)" ON)
 # FB2 SaaS (Legacy) mode: src/fb2/, always built.
-set(_fb2_sources src/fb2/Fb2LegacyMode.cpp)
+set(_fb2_sources
+    src/fb2/Fb2LegacyMode.cpp
+    src/fb2/Fb2Http.cpp
+    src/fb2/Fb2TokenClient.cpp
+)
 
 # All non-system dependencies must live under adbc/submodule.
 set(ADBC_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodule" CACHE PATH
@@ -389,7 +393,12 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         require_static_target(gtest_main)
     endif ()
 
-    set(_fb2_tests tests/unit/fb2_legacy_test.cpp)
+    set(_fb2_tests
+        tests/unit/fb2_legacy_test.cpp
+        tests/unit/fb2_token_client_test.cpp
+        src/fb2/Fb2Http.cpp
+        src/fb2/Fb2TokenClient.cpp
+    )
     add_executable(adbc_driver_tests
         tests/unit/adbc_driver_test.cpp
         tests/unit/session_state_test.cpp
