@@ -21,6 +21,7 @@
 #include <string>
 
 using namespace firebolt::adbc::fb2;
+using firebolt::adbc::Status;
 using std::chrono::seconds;
 using std::chrono::steady_clock;
 
