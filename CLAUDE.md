@@ -218,8 +218,6 @@ Beyond what pre-commit and clang-tidy enforce:
 - Look a value up once: `if (auto * x = find(k); !x || x->empty())`.
 - One `firebolt::adbc::Status` for a status code and message.
 - `NOLINT` only with a reason; don't reformat lines you are not changing; no build switches for features.
-- FB2: "FB2 SaaS (Legacy) mode" in code, `FB2 SaaS mode: ` in error messages, "FB2 only" in docs.
-- Never mention other drivers (e.g. JDBC) in docs or comments; errors never echo a secret.
 
 ## Key Design Decisions
 
