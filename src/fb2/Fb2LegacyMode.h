@@ -22,6 +22,7 @@
 // "FB2 SaaS (Legacy) mode hook" at its call sites.
 #pragma once
 
+#include "Status.h"
 #include "adbc.h"
 
 #include <curl/curl.h>
@@ -58,14 +59,6 @@ inline bool isOption(std::string_view key)
             return true;
     return false;
 }
-
-struct Status
-{
-    AdbcStatusCode code = ADBC_STATUS_OK;
-    std::string message;
-
-    bool ok() const { return code == ADBC_STATUS_OK; }
-};
 
 // What DatabaseInit hands FB2 mode: the main options it must check or reuse, and
 // the transport settings its own control-plane requests follow.

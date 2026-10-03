@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include "Status.h"
 #include "adbc.h"
 
 #include <memory>
@@ -43,8 +44,7 @@ struct FireboltDatabase
 
     // First rejected option, held until DatabaseInit reports it.  See the note in
     // DatabaseSetOption for why a bad option is not refused on the spot.
-    std::string option_error;
-    AdbcStatusCode option_error_code = ADBC_STATUS_OK;
+    Status option_error;
 };
 
 } // namespace firebolt::adbc

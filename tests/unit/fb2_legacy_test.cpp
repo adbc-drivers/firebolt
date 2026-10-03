@@ -18,6 +18,7 @@
 // inside.
 #include <gtest/gtest.h>
 
+#include "Status.h"
 #include "adbc.h"
 
 #include <string>
@@ -31,15 +32,9 @@ namespace
 
 using Options = std::vector<std::pair<std::string, std::string>>;
 
-struct InitOutcome
-{
-    AdbcStatusCode code;
-    std::string message;
-};
-
 // Set every option, then DatabaseInit.  Options must be accepted when set: a bad
 // value is reported by Init (see RejectOption in FireboltAdbcDriver.cpp).
-InitOutcome InitWith(const Options & options)
+firebolt::adbc::Status InitWith(const Options & options)
 {
     AdbcDriver driver{};
     AdbcError error = ADBC_ERROR_INIT;
@@ -48,7 +43,7 @@ InitOutcome InitWith(const Options & options)
     EXPECT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     for (const auto & [k, v] : options)
         EXPECT_EQ(driver.DatabaseSetOption(&db, k.c_str(), v.c_str(), &error), ADBC_STATUS_OK) << k;
-    InitOutcome out{driver.DatabaseInit(&db, &error), ""};
+    firebolt::adbc::Status out{driver.DatabaseInit(&db, &error), ""};
     if (error.message)
         out.message = error.message;
     if (error.release)

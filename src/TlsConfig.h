@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include "Status.h"
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -38,8 +40,10 @@ namespace firebolt::adbc
 struct CaBundleResult
 {
     std::string path; // the bundle to hand to CURLOPT_CAINFO; empty on failure
-    std::string error; // why no bundle was found; empty on success
-    bool configuration_error = false; // true when an explicit option or env var is at fault
+    // Why no bundle was found: INVALID_ARGUMENT when an explicit option or
+    // environment variable names an unreadable file, INVALID_STATE when the
+    // host simply has none.
+    Status status;
 };
 
 // Distribution bundle locations, probed in order.

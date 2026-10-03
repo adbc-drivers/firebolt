@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include "Status.h"
 #include "adbc.h"
 
 #include <optional>
@@ -41,15 +42,9 @@ struct NotFireboltUri
 {
 };
 
-// A firebolt:// uri that cannot be used, with the status to report it under.
-struct FireboltUriError
-{
-    AdbcStatusCode code;
-    std::string message;
-};
-
-// Never throws: running out of memory comes back as a FireboltUriError.
-std::variant<NotFireboltUri, FireboltUri, FireboltUriError> parseFireboltUri(const std::string & uri) noexcept;
+// A firebolt:// uri that cannot be used comes back as the Status to report it
+// under.  Never throws: running out of memory comes back as a Status too.
+std::variant<NotFireboltUri, FireboltUri, Status> parseFireboltUri(const std::string & uri) noexcept;
 
 // An absolute URL as libcurl reads it, for checks on where a request will go.
 struct ParsedUrl

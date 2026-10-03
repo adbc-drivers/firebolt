@@ -265,11 +265,8 @@ static AdbcStatusCode RejectOption(FireboltDatabase * fdb, AdbcError * error, Ad
 {
     if (fdb->initialized)
         return SetError(error, code, message);
-    if (fdb->option_error.empty())
-    {
-        fdb->option_error = std::move(message);
-        fdb->option_error_code = code;
-    }
+    if (fdb->option_error.ok())
+        fdb->option_error = {code, std::move(message)};
     return ADBC_STATUS_OK;
 }
 
@@ -297,8 +294,8 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
             return SetError(error, ADBC_STATUS_INVALID_STATE, "Option '" + k + "' must be set before AdbcDatabaseInit");
         if (!fdb->fb2)
             fdb->fb2 = std::make_shared<fb2::Fb2LegacyMode>();
-        fb2::Status s = fdb->fb2->setOption(k, v);
-        return s.ok() ? ADBC_STATUS_OK : RejectOption(fdb, error, s.code, s.message);
+        Status status = fdb->fb2->setOption(k, v);
+        return status.ok() ? ADBC_STATUS_OK : RejectOption(fdb, error, status.code, status.message);
     }
     if (k == "uri")
         fdb->url = v;
@@ -360,16 +357,16 @@ static AdbcStatusCode InitFb2LegacyMode(FireboltDatabase * fdb, AdbcError * erro
         return SetError(
             error, ADBC_STATUS_INVALID_ARGUMENT, "FB2 SaaS mode needs TLS, but this driver was built without it (-DWITH_SSL=OFF)");
     CaBundleResult ca = resolveCaBundle(fdb->ssl_certificate_path);
-    if (!ca.error.empty())
-        return SetError(error, ca.configuration_error ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_INVALID_STATE, ca.error);
+    if (!ca.status.ok())
+        return SetError(error, ca.status.code, ca.status.message);
     fdb->ca_bundle_path = ca.path;
 
     initCurl();
     fb2::InitInputs inputs{fdb->url, fdb->token, fdb->database, fdb->ca_bundle_path, fdb->timeout_sec};
     std::string endpoint;
-    fb2::Status s = fdb->fb2->init(inputs, endpoint);
-    if (!s.ok())
-        return SetError(error, s.code, s.message);
+    Status status = fdb->fb2->init(inputs, endpoint);
+    if (!status.ok())
+        return SetError(error, status.code, status.message);
     fdb->url = endpoint;
     fdb->initialized = true;
     return ADBC_STATUS_OK;
@@ -382,8 +379,8 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     auto * fdb = static_cast<FireboltDatabase *>(db->private_data);
 
     // An option rejected before Init is reported here — see RejectOption.
-    if (!fdb->option_error.empty())
-        return SetError(error, fdb->option_error_code, fdb->option_error);
+    if (!fdb->option_error.ok())
+        return SetError(error, fdb->option_error.code, fdb->option_error.message);
 
     // FB2 SaaS (Legacy) mode hook: the mode resolves the endpoint itself.
     if (fdb->fb2 && fdb->fb2->requested())
@@ -396,7 +393,7 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     // this driver); it resolves to the HTTP endpoint every request goes to.  The
     // path names the database, and an explicit firebolt.database option wins.
     auto parsed = parseFireboltUri(fdb->url);
-    if (const auto * uri_error = std::get_if<FireboltUriError>(&parsed))
+    if (const auto * uri_error = std::get_if<Status>(&parsed))
         return SetError(error, uri_error->code, uri_error->message);
     auto * uri = std::get_if<FireboltUri>(&parsed);
     const bool from_firebolt_uri = uri != nullptr;
@@ -429,8 +426,8 @@ static AdbcStatusCode DatabaseInit(AdbcDatabase * db, AdbcError * error)
     if (is_https || !fdb->ssl_certificate_path.empty())
     {
         CaBundleResult ca = resolveCaBundle(fdb->ssl_certificate_path);
-        if (!ca.error.empty())
-            return SetError(error, ca.configuration_error ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_INVALID_STATE, ca.error);
+        if (!ca.status.ok())
+            return SetError(error, ca.status.code, ca.status.message);
         fdb->ca_bundle_path = ca.path;
     }
 

@@ -20,9 +20,9 @@
 #include <variant>
 
 using firebolt::adbc::FireboltUri;
-using firebolt::adbc::FireboltUriError;
 using firebolt::adbc::NotFireboltUri;
 using firebolt::adbc::parseFireboltUri;
+using firebolt::adbc::Status;
 
 namespace
 {
@@ -40,7 +40,7 @@ Parsed parse(const std::string & uri)
     Parsed p{};
     const auto result = parseFireboltUri(uri);
     EXPECT_FALSE(std::holds_alternative<NotFireboltUri>(result)) << uri;
-    if (const auto * error = std::get_if<FireboltUriError>(&result))
+    if (const auto * error = std::get_if<Status>(&result))
     {
         p.code = error->code;
         p.message = error->message;
