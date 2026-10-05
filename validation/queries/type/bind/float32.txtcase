@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "Firebolt sends floating-point parameters as DOUBLE PRECISION"
-

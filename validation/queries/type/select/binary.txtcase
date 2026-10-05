@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "The shared case uses BLOB and X-prefixed literals instead of Firebolt BYTEA syntax"
-

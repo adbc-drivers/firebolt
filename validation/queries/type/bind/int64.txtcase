@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "The shared case includes INT64_MIN, which Firebolt cannot parse as a query parameter"
-

@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "Firebolt query parameters do not support binary values"
-

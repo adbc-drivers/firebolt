@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "Firebolt widens int16 input to int32"
-

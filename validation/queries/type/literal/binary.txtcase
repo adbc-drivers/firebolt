@@ -15,4 +15,3 @@
 // part: metadata
 
 skip = "The shared case uses a binary conversion function Firebolt does not provide"
-
