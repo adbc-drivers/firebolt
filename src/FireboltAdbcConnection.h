@@ -15,6 +15,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -39,6 +40,10 @@ struct FireboltConnection
     std::shared_ptr<fb2::Fb2LegacyMode> fb2;
     std::unique_ptr<HttpClient> http;
     std::unordered_map<std::string, std::string> session_params;
+    // ADBC requires ConnectionGetOption to be thread-safe with itself. Other
+    // connection operations are not thread-safe, so this mutex only serializes
+    // concurrent option reads that share the connection's curl handle.
+    std::mutex get_option_mutex;
     // Per-connection bearer token.  Initialised from FireboltDatabase::token at
     // ConnectionInit time, then mutated only by ConnectionSetOption on this
     // connection — keeping connections that share a FireboltDatabase isolated.

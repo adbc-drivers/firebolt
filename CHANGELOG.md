@@ -28,9 +28,10 @@ All notable changes to this project are documented here. The format follows
   Linux x86_64/aarch64, macOS arm64, and Windows x86_64 drivers. macOS uses Secure
   Transport and Windows uses Schannel; Linux release artifacts continue to use
   BoringSSL with a manylinux_2_28 baseline.
-- **ADBC validation suite.** Added the shared driver validation tests and a local
-  Firebolt Compose environment. The generated CI validation job remains disabled
-  while initial conformance gaps are triaged.
+- **ADBC validation suite.** Added the shared driver validation tests, Firebolt
+  type-specific cases, a local Compose environment, and generated CI coverage.
+- **Runtime metadata.** `AdbcConnectionGetInfo` now reports the Firebolt server's
+  version from `SELECT version()` as `ADBC_INFO_VENDOR_VERSION`.
 - **TLS.** Released builds now support `https://` and always verify the peer. Linux
   links BoringSSL; macOS and Windows use their native TLS backends and trust stores.
   On Linux a CA bundle is found at run time — `SSL_CERT_FILE`, then the Debian,
@@ -60,6 +61,9 @@ All notable changes to this project are documented here. The format follows
 - **Driver options are named `firebolt.*`** (`firebolt.token`, `firebolt.database`,
   `firebolt.timeout_sec`, `firebolt.ssl_certificate_path`) instead of `adbc.firebolt.*`,
   per the Foundry option-naming rule.
+- **Server session parameters use `firebolt.session.*`.** The driver strips this
+  prefix before forwarding the parameter; unrelated unknown options now return
+  `ADBC_STATUS_NOT_IMPLEMENTED` instead of being silently accepted.
 - **FB2 only:** `username` and `password` are no longer accepted and ignored. They are
   FB2 SaaS (Legacy) mode credentials now, so setting them without
   `firebolt.account` fails `AdbcDatabaseInit` with `ADBC_STATUS_INVALID_ARGUMENT`.

@@ -92,8 +92,8 @@ Adjust the platform and architecture arguments as needed.
 
 CI and local C++ development use `ci/scripts/build.sh` and `ci/scripts/test.sh`.
 The Firebolt-specific integration suite is available locally through its Docker
-runner. The shared ADBC validation suite is available locally but is not yet
-enabled in generated CI.
+runner. The generated Linux validation job runs the shared ADBC validation
+suite against the Compose service.
 
 ```bash
 # Native C++ build and unit tests:
@@ -202,8 +202,9 @@ Beyond what pre-commit and clang-tidy enforce:
   `ADBC_INFO_DRIVER_VERSION`; the same value sets the target `VERSION`/`SOVERSION`.
   `script_release.yaml` refuses to publish when the git tag disagrees with it.
 - **A bad option is an error, not a shrug** — an unrecognised `firebolt.*` database
-  key returns `ADBC_STATUS_NOT_FOUND` (keys outside that namespace stay accepted, since
-  the driver manager sets some itself), a malformed `timeout_sec` returns
+  key returns `ADBC_STATUS_NOT_FOUND`, other unsupported options return
+  `ADBC_STATUS_NOT_IMPLEMENTED`, connection options under `firebolt.session.*`
+  alone are forwarded as server settings, and a malformed `timeout_sec` returns
   `ADBC_STATUS_INVALID_ARGUMENT` rather than throwing `std::invalid_argument` through the
   C ABI and aborting the host process, and `uri` is scheme-checked at `DatabaseInit`.
 - **A rejected database option is reported by `DatabaseInit`, not by `DatabaseSetOption`** —
@@ -333,7 +334,7 @@ error status, and the full Arrow→Firebolt type mapping. Summary only here.
 | `ADBC_CONNECTION_OPTION_AUTOCOMMIT` | Connection | `false` enables explicit transactions: lazy `BEGIN`, then `Commit`/`Rollback` |
 | `ADBC_INGEST_OPTION_TARGET_TABLE` | Statement | Target table for the bind-data ingest path; auto-generates `INSERT INTO {target} ({cols}) SELECT * FROM read_arrow('upload://data.arrow')` on `ExecuteUpdate` |
 | `"adbc.statement.bind_by_name"` | Statement | `true` additionally names bound parameters after their columns (for `param('name')`); the positional `$N` names are always sent too, so a stale setting cannot unbind a placeholder. Only the canonical `true`/`false` accepted. Absent from the vendored ADBC 1.1.0 header, so defined locally |
-| Unknown keys on `ConnectionSetOption` after init | Connection | Stored as session params appended to query URL |
+| `"firebolt.session.<name>"` | Connection | Stores `<name>` as a session parameter appended to the query URL |
 
 `ADBC_INGEST_OPTION_MODE` (append / create / replace / create_append) and the
 catalog/schema target options are honoured: the create-style modes synthesise

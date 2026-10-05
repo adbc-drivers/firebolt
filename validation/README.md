@@ -37,7 +37,6 @@ arguments directly, for example:
 FIREBOLT_URI=http://localhost:3473 pixi run validate --vendor-version 5.0.0 -k get_objects
 ```
 
-CI validation is temporarily disabled with `validation.skip = true` in
-`.github/workflows/generate.toml`. Set it to `false` and rerun
-`adbc-gen-workflow` when the suite is ready for CI; do not edit the generated
-workflow YAML directly.
+The generated Linux validation job runs this same sequence for Firebolt 5.0.0.
+Its configuration lives in `.github/workflows/generate.toml`; do not edit the
+generated workflow YAML directly.

@@ -198,6 +198,24 @@ getCol(const FlatResult & r, const std::vector<std::optional<std::string>> & row
     return row[i];
 }
 
+static AdbcStatusCode queryVendorVersion(FireboltConnection * conn, std::string & version, AdbcError * error)
+{
+    if (!conn || !conn->http)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "GetInfo: connection not initialized");
+
+    FlatResult result;
+    std::string query_error = executeAndRead(conn, "SELECT version()", result);
+    if (!query_error.empty())
+        return SetError(error, ADBC_STATUS_IO, "GetInfo: failed to query vendor version: " + query_error);
+
+    if (result.col_names.size() != 1 || result.rows.size() != 1 || result.rows.front().size() != 1 || !result.rows.front().front()
+        || result.rows.front().front()->empty())
+        return SetError(error, ADBC_STATUS_INVALID_DATA, "GetInfo: SELECT version() did not return one non-empty value");
+
+    version = *result.rows.front().front();
+    return ADBC_STATUS_OK;
+}
+
 // ============================================================
 // ConnectionGetInfo
 // ============================================================
@@ -320,8 +338,8 @@ static int appendInfoRow(ArrowArray * batch, uint32_t code, int8_t type_id, cons
     return 0;
 }
 
-AdbcStatusCode ConnectionGetInfo(
-    FireboltConnection * /*conn*/, const uint32_t * info_codes, size_t info_codes_len, ArrowArrayStream * out, AdbcError * error)
+AdbcStatusCode
+ConnectionGetInfo(FireboltConnection * conn, const uint32_t * info_codes, size_t info_codes_len, ArrowArrayStream * out, AdbcError * error)
 {
     // Build the set of requested codes (empty = return all).
     std::unordered_set<uint32_t> requested;
@@ -329,6 +347,14 @@ AdbcStatusCode ConnectionGetInfo(
         for (size_t i = 0; i < info_codes_len; i++)
             requested.insert(info_codes[i]);
     auto want = [&](uint32_t code) { return requested.empty() || requested.count(code); };
+
+    std::string vendor_version;
+    if (want(ADBC_INFO_VENDOR_VERSION))
+    {
+        AdbcStatusCode status = queryVendorVersion(conn, vendor_version, error);
+        if (status != ADBC_STATUS_OK)
+            return status;
+    }
 
     // Build schema.
     nanoarrow::UniqueSchema schema;
@@ -354,10 +380,12 @@ AdbcStatusCode ConnectionGetInfo(
     };
     std::vector<Entry> entries = {
         {ADBC_INFO_VENDOR_NAME, 0, "Firebolt", false, 0},
+        {ADBC_INFO_VENDOR_VERSION, 0, vendor_version, false, 0},
         {ADBC_INFO_VENDOR_SQL, 1, "", true, 0},
         {ADBC_INFO_VENDOR_SUBSTRAIT, 1, "", false, 0},
         {ADBC_INFO_DRIVER_NAME, 0, "ADBC Driver for Firebolt", false, 0},
         {ADBC_INFO_DRIVER_VERSION, 0, FIREBOLT_ADBC_VERSION, false, 0},
+        {ADBC_INFO_DRIVER_ARROW_VERSION, 0, "v" + std::string(ArrowNanoarrowVersion()), false, 0},
         {ADBC_INFO_DRIVER_ADBC_VERSION, 2, "", false, ADBC_VERSION_1_1_0},
     };
 
@@ -416,23 +444,23 @@ AdbcStatusCode ConnectionGetTableTypes(FireboltConnection * /*conn*/, ArrowArray
 // ============================================================
 
 AdbcStatusCode ConnectionGetTableSchema(
-    FireboltConnection * conn,
-    const char * /*catalog*/,
-    const char * db_schema,
-    const char * table_name,
-    ArrowSchema * out,
-    AdbcError * error)
+    FireboltConnection * conn, const char * catalog, const char * db_schema, const char * table_name, ArrowSchema * out, AdbcError * error)
 {
     if (!table_name || !*table_name)
         return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "GetTableSchema: table_name is required");
 
-    auto resp = conn->http->executeQuery(buildTableSchemaSql(db_schema ? db_schema : "", table_name), conn->session_params);
+    auto resp = conn->http->executeQuery(
+        buildTableSchemaSql(catalog ? catalog : "", db_schema ? db_schema : "", table_name), conn->session_params);
     applySessionUpdatesIfSuccess(conn->session_params, resp);
     if (!resp.isSuccess())
-        return SetError(
-            error,
-            resp.http_code >= 400 && resp.http_code < 500 ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_IO,
-            "GetTableSchema: " + resp.error_message);
+    {
+        const bool relation_not_found = resp.curl_code == CURLE_OK && resp.http_code >= 400 && resp.http_code < 500
+            && resp.error_message.find("relation") != std::string::npos && resp.error_message.find("does not exist") != std::string::npos;
+        const AdbcStatusCode status = relation_not_found
+            ? ADBC_STATUS_NOT_FOUND
+            : (resp.http_code >= 400 && resp.http_code < 500 ? ADBC_STATUS_INVALID_ARGUMENT : ADBC_STATUS_IO);
+        return SetError(error, status, "GetTableSchema: " + resp.error_message);
+    }
 
     ArrowArrayStream stream{};
     std::string err = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream);

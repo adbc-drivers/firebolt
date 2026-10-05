@@ -29,4 +29,8 @@ namespace firebolt::adbc
 // Returns a non-empty error string on failure.
 std::string ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArrayStream * out);
 
+// Decode several independent Arrow IPC responses and expose their record batches
+// as one stream, in response order. Returns an error if their schemas differ.
+std::string ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ipc_responses, ArrowArrayStream * out);
+
 } // namespace firebolt::adbc

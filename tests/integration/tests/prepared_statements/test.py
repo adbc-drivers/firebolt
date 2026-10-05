@@ -190,7 +190,9 @@ class TestRequestBudget:
     def test_bound_parameters_override_a_session_parameter_of_the_same_name(
         self, mock_server, conn_to_mock
     ) -> None:
-        conn_to_mock.set_options(query_parameters='[{"name":"$1","value":"stale"}]')
+        conn_to_mock.set_options(
+            **{"firebolt.session.query_parameters": '[{"name":"$1","value":"stale"}]'}
+        )
         with adbc_driver_manager.AdbcStatement(conn_to_mock) as stmt:
             stmt.set_sql_query("SELECT $1")
             stmt.bind(pa.record_batch([[41]], names=["0"]))

@@ -100,16 +100,9 @@ std::string qualifiedTable(const std::string & catalog, const std::string & db_s
     return result;
 }
 
-std::string buildTableSchemaSql(const std::string & db_schema, const std::string & table_name)
+std::string buildTableSchemaSql(const std::string & catalog, const std::string & db_schema, const std::string & table_name)
 {
-    std::string qualified;
-    if (!db_schema.empty())
-    {
-        qualified += quoteIdentifier(db_schema);
-        qualified += '.';
-    }
-    qualified += quoteIdentifier(table_name);
-    return "SELECT * FROM " + qualified + " LIMIT 0";
+    return "SELECT * FROM " + qualifiedTable(catalog, db_schema, table_name) + " LIMIT 0";
 }
 
 std::string arrowTypeToFireboltSqlType(const ArrowSchema * field)
