@@ -16,6 +16,19 @@ limitations under the License.
 
 # Contributing
 
+All contributors are expected to follow the [Code of
+Conduct](https://github.com/adbc-drivers/firebolt?tab=coc-ov-file#readme).
+
+## Reporting Issues and Making Feature Requests
+
+Please file issues and feature requests on the GitHub issue tracker:
+https://github.com/adbc-drivers/firebolt/issues
+
+Potential security vulnerabilities should be reported to
+[security@adbc-drivers.org](mailto:security@adbc-drivers.org), not in a
+public issue. See the [Security
+Policy](https://github.com/adbc-drivers/firebolt?tab=security-ov-file#readme).
+
 ## Prerequisites
 
 Docker and git. That is all — the toolchain, the compiler, and every dependency
