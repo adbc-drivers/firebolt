@@ -446,6 +446,9 @@ pixi run make                   # native library for the current host
 `adbc-drivers/dev` manylinux_2_28 C++ image, so their `.so` supports glibc 2.28
 and newer. Details and the dependency policy are in [CONTRIBUTING.md](CONTRIBUTING.md)
 and [AGENTS.md](AGENTS.md).
+The shared ADBC driver validation suite can run locally against the Firebolt
+engine defined in `compose.yaml`; see [validation/README.md](validation/README.md).
+Its generated CI job is currently disabled while conformance gaps are triaged.
 
 ## Documentation
 

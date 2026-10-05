@@ -55,6 +55,8 @@ private keys, including test material: generate test certificates at run time.
 │   ├── unit/                         # GoogleTest, no server needed
 │   └── integration/                  # pytest in a runner container (runner.py, conftest.py):
 │                                     #   a 1-node engine, a mock server, or an FB2 SaaS engine
+├── validation/                       # shared ADBC validation suite adapter
+├── compose.yaml                      # local Firebolt service for shared validation
 ├── ci/scripts/                       # adbc-make build, test, and license hooks
 ├── scripts/clang-tidy.sh             # clang-tidy against the generated compile database
 ├── docs/, examples/python/           # user docs and runnable examples
@@ -89,6 +91,9 @@ Adjust the platform and architecture arguments as needed.
 ## Testing
 
 CI and local C++ development use `ci/scripts/build.sh` and `ci/scripts/test.sh`.
+The Firebolt-specific integration suite has its own handwritten workflow and
+Docker runner. The shared ADBC validation suite is available locally but is not
+yet enabled in generated CI.
 
 ```bash
 # Native C++ build and unit tests:
@@ -110,8 +115,7 @@ pre-commit run --all-files
 first invocation (from `tests/integration/docker/Dockerfile`) — no registry
 needed for the runner. The engine image (`--engine-image`, default in
 `runner.py::DEFAULT_ENGINE_IMAGE`) is pulled from the public GHCR repo on every
-run — it is a floating `:latest` tag, so a cached copy is only used as a
-fallback when the pull fails.
+run, with a cached copy used only as a fallback when the pull fails.
 
 The image ships the unified `firebolt` binary (server + client): its entrypoint
 execs `firebolt <args>` and its default command is
