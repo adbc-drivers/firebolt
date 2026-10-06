@@ -199,5 +199,5 @@ make specific claims, and a stale claim is worse than no claim:
 ## Pull requests
 
 `script_test.yaml` runs the generated build, unit, and packaging jobs on every
-pull request. The handwritten `integration.yaml` separately runs the existing
-Firebolt-specific integration suite; shared validation remains disabled in CI.
+pull request. The existing Firebolt-specific integration suite can be run
+locally; shared validation remains disabled in CI.

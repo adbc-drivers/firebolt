@@ -91,9 +91,9 @@ Adjust the platform and architecture arguments as needed.
 ## Testing
 
 CI and local C++ development use `ci/scripts/build.sh` and `ci/scripts/test.sh`.
-The Firebolt-specific integration suite has its own handwritten workflow and
-Docker runner. The shared ADBC validation suite is available locally but is not
-yet enabled in generated CI.
+The Firebolt-specific integration suite is available locally through its Docker
+runner. The shared ADBC validation suite is available locally but is not yet
+enabled in generated CI.
 
 ```bash
 # Native C++ build and unit tests:
