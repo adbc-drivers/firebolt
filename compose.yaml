@@ -26,7 +26,11 @@ services:
         condition: service_completed_successfully
 
   firebolt:
-    image: ${FIREBOLT_ENGINE_IMAGE:-ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8}
+    image: ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
+    # Firebolt Core uses io_uring. Its documented Docker invocation disables
+    # the default seccomp profile and raises RLIMIT_MEMLOCK to 8 GiB so that
+    # registered buffers can be pinned without ENOMEM:
+    # https://github.com/firebolt-db/firebolt-core#readme
     security_opt:
       - seccomp:unconfined
     ulimits:
@@ -52,7 +56,7 @@ services:
       - "3473:3473"
 
   firebolt-init:
-    image: ${FIREBOLT_ENGINE_IMAGE:-ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8}
+    image: ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |

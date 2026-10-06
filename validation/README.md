@@ -28,7 +28,7 @@ docker compose down --volumes
 
 `compose.yaml` starts a single-node engine with authentication disabled and
 creates the secondary catalog and schema required by the metadata and ingest
-tests. Set `FIREBOLT_ENGINE_IMAGE` to validate against another engine image.
+tests.
 
 The suite uses the host's native driver and Pixi environment. Pass extra pytest
 arguments directly, for example:
