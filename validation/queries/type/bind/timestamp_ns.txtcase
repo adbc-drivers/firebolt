@@ -14,4 +14,34 @@
 
 // part: metadata
 
-skip = "Firebolt supports only TIMESTAMP(6)"
+# Firebolt rounds nanosecond query parameters to microseconds.
+[tags]
+sql-type-name = "TIMESTAMP(6)"
+
+// part: setup_query
+
+CREATE TABLE test_timestamp (
+    idx INT,
+    res TIMESTAMP(6)
+);
+
+// part: expected_schema
+
+{
+    "format": "+s",
+    "children": [
+        {
+            "name": "res",
+            "format": "tsu:",
+            "flags": ["nullable"]
+        }
+    ]
+}
+
+// part: expected
+
+{"res": null}
+{"res": -9223372036854776}
+{"res": 946684800000000}
+{"res": 1684158330000000}
+{"res": 9223372036854776}

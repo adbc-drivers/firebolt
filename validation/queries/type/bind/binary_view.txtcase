@@ -14,4 +14,4 @@
 
 // part: metadata
 
-skip = "Firebolt query parameters do not support binary values"
+skip = "Firebolt parameter protocol lacks binary values"

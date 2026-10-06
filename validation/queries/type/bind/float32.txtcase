@@ -14,4 +14,10 @@
 
 // part: metadata
 
-skip = "Firebolt sends floating-point parameters as DOUBLE PRECISION"
+# Firebolt query parameters represent every floating-point value as DOUBLE
+# PRECISION. Convert through TEXT because Firebolt rejects direct narrowing
+# casts from DOUBLE PRECISION to REAL.
+
+// part: bind_query
+
+INSERT INTO test_float32 VALUES ($1::TEXT::REAL)

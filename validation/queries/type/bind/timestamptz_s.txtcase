@@ -14,4 +14,47 @@
 
 // part: metadata
 
-skip = "Firebolt supports only TIMESTAMP(6) WITH TIME ZONE"
+[tags]
+sql-type-name = "TIMESTAMP(6) WITH TIME ZONE"
+
+// part: setup_query
+
+CREATE TABLE test_timestamptz (
+    idx INT,
+    res TIMESTAMP(6) WITH TIME ZONE,
+    res2 TIMESTAMP(6) WITH TIME ZONE
+);
+
+// part: bind
+
+{"idx": 3, "res": 1684158330, "res2": 1684158330}
+{"idx": 2, "res": 946684800, "res2": 946684800}
+{"idx": 1, "res": -14182940, "res2": -14182940}
+{"idx": 4, "res": 253402128000, "res2": 253402128000}
+{"idx": 0, "res": null, "res2": null}
+
+// part: expected_schema
+
+{
+    "format": "+s",
+    "children": [
+        {
+            "name": "res",
+            "format": "tsu:UTC",
+            "flags": ["nullable"]
+        },
+        {
+            "name": "res2",
+            "format": "tsu:UTC",
+            "flags": ["nullable"]
+        }
+    ]
+}
+
+// part: expected
+
+{"res": null, "res2": null}
+{"res": -14182940000000, "res2": -14182940000000}
+{"res": 946684800000000, "res2": 946684800000000}
+{"res": 1684158330000000, "res2": 1684158330000000}
+{"res": 253402128000000000, "res2": 253402128000000000}

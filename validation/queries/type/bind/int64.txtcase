@@ -14,4 +14,20 @@
 
 // part: metadata
 
-skip = "The shared case includes INT64_MIN, which Firebolt cannot parse as a query parameter"
+// part: bind
+
+{"res": 42}
+{"res": 4294967296}
+{"res": 9223372036854775807}
+{"res": -9223372036854775807}
+{"res": 0}
+{"res": null}
+
+// part: expected
+
+{"res": null}
+{"res": -9223372036854775807}
+{"res": 0}
+{"res": 42}
+{"res": 4294967296}
+{"res": 9223372036854775807}

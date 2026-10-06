@@ -14,4 +14,18 @@
 
 // part: metadata
 
-skip = "The shared case uses BLOB and X-prefixed literals instead of Firebolt BYTEA syntax"
+[tags]
+sql-type-name = "BYTEA"
+
+// part: setup_query
+
+CREATE TABLE test_binary (
+    idx INTEGER,
+    res BYTEA
+);
+
+INSERT INTO test_binary (idx, res) VALUES (1, decode('e38193e38293e381abe381a1e381afe38081e4b896e7958cefbc81', 'HEX'));
+INSERT INTO test_binary (idx, res) VALUES (2, decode('00', 'HEX'));
+INSERT INTO test_binary (idx, res) VALUES (3, decode('deadbeef', 'HEX'));
+INSERT INTO test_binary (idx, res) VALUES (4, decode('', 'HEX'));
+INSERT INTO test_binary (idx, res) VALUES (5, NULL);

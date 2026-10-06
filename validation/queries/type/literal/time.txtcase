@@ -14,4 +14,4 @@
 
 // part: metadata
 
-skip = "Firebolt does not support the TIME type"
+hide = true
