@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// part: metadata
-
-[tags]
-caveats = ["The maximum Firebolt date is 9999-12-30."]
-
 // part: bind
 
 {"res": 19492}

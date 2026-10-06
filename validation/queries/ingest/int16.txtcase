@@ -12,6 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// part: metadata
+// part: expected_schema
 
-skip = "Firebolt widens int16 input to int32"
+{
+    "format": "+s",
+    "children": [
+        {
+            "name": "idx",
+            "format": "l",
+            "flags": ["nullable"]
+        },
+        {
+            "name": "value",
+            "format": "i",
+            "flags": ["nullable"]
+        }
+    ]
+}

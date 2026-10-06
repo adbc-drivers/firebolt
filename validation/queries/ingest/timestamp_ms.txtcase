@@ -12,6 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// part: metadata
+// part: input
 
-skip = "Firebolt exposes timestamps at microsecond precision"
+{"idx": 0, "value": null}
+{"idx": 1, "value": 0}
+{"idx": 2, "value": 946684800123}
+{"idx": 3, "value": 1684158330123}
+{"idx": 4, "value": -62135596800000}
+{"idx": 5, "value": 253402128000000}
+
+// part: expected_schema
+
+{
+    "format": "+s",
+    "children": [
+        {
+            "name": "idx",
+            "format": "l",
+            "flags": ["nullable"]
+        },
+        {
+            "name": "value",
+            "format": "tsu:",
+            "flags": ["nullable"]
+        }
+    ]
+}
+
+// part: expected
+
+{"idx": 0, "value": null}
+{"idx": 1, "value": 0}
+{"idx": 2, "value": 946684800123000}
+{"idx": 3, "value": 1684158330123000}
+{"idx": 4, "value": -62135596800000000}
+{"idx": 5, "value": 253402128000000000}
