@@ -82,6 +82,7 @@ jobs:
           - { platform: linux, arch: amd64, runner: ubuntu-latest }
           - { platform: macos, arch: arm64, runner: macos-latest }
           - { platform: windows, arch: amd64, runner: windows-latest }
+    environment: fb2
     permissions:
       contents: read
       packages: read

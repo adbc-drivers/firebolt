@@ -20,6 +20,12 @@ private = false
 [lang.script]
 subdir = "."
 
+# FB2 only: the Test jobs receive the FIREBOLT_FB2_* secrets (see [secrets]
+# below), so they run in the "fb2" GitHub Environment and the secrets live there,
+# scoped to these jobs, rather than as repository-wide secrets.
+[lang.script.test]
+environment = "fb2"
+
 [lang.script.validation]
 configs = [
   { service_name = "test-service", vendor_version = "5.0.0" },
