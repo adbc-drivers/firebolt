@@ -117,6 +117,12 @@ jobs:
           fi
 
       - name: Test
+        env:
+          FIREBOLT_FB2_CLIENT_ID: ${{ secrets.FIREBOLT_FB2_CLIENT_ID }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_CLIENT_SECRET: ${{ secrets.FIREBOLT_FB2_CLIENT_SECRET }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ACCOUNT: ${{ secrets.FIREBOLT_FB2_ACCOUNT }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ENGINE: ${{ secrets.FIREBOLT_FB2_ENGINE }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ENVIRONMENT: ${{ secrets.FIREBOLT_FB2_ENVIRONMENT }} # zizmor: ignore[secrets-outside-env]
         working-directory: .
         run: |
           set -a

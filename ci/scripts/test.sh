@@ -61,3 +61,15 @@ if [[ "$platform" == "linux" && "$arch" == "amd64" ]]; then
     "${python[@]}" "$example" --help >/dev/null
   done
 fi
+
+# FB2 only: tests/fb2_legacy_live against a real Firebolt 2.0 SaaS account, using
+# the driver built above. Optional: skipped without the FIREBOLT_FB2_* secrets
+# (forks, unconfigured repositories), and a failure is reported as a warning
+# without failing CI, since the engine may be auto-stopped.
+if [[ "$platform" == "linux" && "$arch" == "amd64" ]]; then
+  if [[ -z "${FIREBOLT_FB2_CLIENT_ID:-}" ]]; then
+    printf 'Skipping FB2 live tests: FIREBOLT_FB2_* secrets are not set\n'
+  elif ! "${repo_root}/tests/integration/runner.py" tests/fb2_legacy_live -rs; then
+    printf '::warning title=FB2 live tests::tests/fb2_legacy_live failed (optional, does not block the merge)\n'
+  fi
+fi

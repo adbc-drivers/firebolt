@@ -38,6 +38,27 @@ on:
       - "**"
       - .github/workflows/script_test.yaml
 
+  workflow_call:
+    inputs:
+      repository:
+        description: "The repository to checkout (in owner/repo short format)"
+        required: true
+        type: string
+      ref:
+        description: "The ref to checkout"
+        required: true
+        type: string
+    secrets:
+      FIREBOLT_FB2_CLIENT_ID:
+        required: true
+      FIREBOLT_FB2_CLIENT_SECRET:
+        required: true
+      FIREBOLT_FB2_ACCOUNT:
+        required: true
+      FIREBOLT_FB2_ENGINE:
+        required: true
+      FIREBOLT_FB2_ENVIRONMENT:
+        required: true
 
 concurrency:
   group: ${{ github.repository }}-${{ github.ref }}-${{ github.workflow }}
@@ -73,7 +94,18 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
           submodules: 'recursive'
@@ -125,6 +157,12 @@ jobs:
           fi
 
       - name: Test
+        env:
+          FIREBOLT_FB2_CLIENT_ID: ${{ secrets.FIREBOLT_FB2_CLIENT_ID }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_CLIENT_SECRET: ${{ secrets.FIREBOLT_FB2_CLIENT_SECRET }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ACCOUNT: ${{ secrets.FIREBOLT_FB2_ACCOUNT }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ENGINE: ${{ secrets.FIREBOLT_FB2_ENGINE }} # zizmor: ignore[secrets-outside-env]
+          FIREBOLT_FB2_ENVIRONMENT: ${{ secrets.FIREBOLT_FB2_ENVIRONMENT }} # zizmor: ignore[secrets-outside-env]
         working-directory: .
         run: |
           set -a
@@ -180,7 +218,18 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
           submodules: 'recursive'
@@ -303,7 +352,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
           submodules: 'recursive'
@@ -374,7 +434,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
           submodules: 'recursive'
@@ -475,7 +546,17 @@ jobs:
           ./dbc install --no-verify "${driver_pkg}"
           echo "Installed ${driver_pkg}"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: 'recursive'
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 1
           persist-credentials: false
           submodules: 'recursive'
@@ -509,7 +590,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - name: "checkout remote"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
           submodules: 'recursive'
