@@ -18,3 +18,9 @@ manylinux = "manylinux_2_28"
 [lang]
 lang = "script"
 toolchain = "cpp"
+
+# Windows system DLLs that curl 8.22 imports directly: SECUR32 for Schannel's
+# InitSecurityInterface (8.8 loaded it at run time instead), IPHLPAPI for
+# if_nametoindex (IPv6 zone IDs).
+[additional-runtime-dependencies]
+windows = ["IPHLPAPI.DLL", "SECUR32.DLL"]
