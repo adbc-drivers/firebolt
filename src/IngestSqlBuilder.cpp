@@ -15,6 +15,7 @@
 #include "IngestSqlBuilder.h"
 
 #include "FireboltAdbcStatement.h"
+#include "StringUtils.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -54,7 +55,7 @@ namespace
     {
         if (e)
         {
-            e->message = strdup(msg.c_str());
+            e->message = duplicateString(msg);
             e->release = [](AdbcError * err) {
                 free(err->message);
                 err->message = nullptr;

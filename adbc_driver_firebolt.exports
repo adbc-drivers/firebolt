@@ -12,5 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-license.tpl
-pixi.lock
+_AdbcDriverInit
+_AdbcDriverFireboltInit

@@ -26,25 +26,29 @@
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow_ipc.hpp>
 
-#include <dlfcn.h>
 #include <curl/curl.h>
 
-#include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <string>
 #include <utility>
 #include <vector>
-#include <unistd.h>
+
+#if defined(_WIN32)
+#    include <windows.h>
+#else
+#    include <dlfcn.h>
+#endif
 
 // Entry points defined in FireboltAdbcDriver.cpp
 extern "C" AdbcStatusCode AdbcDriverInit(int version, void * raw_driver, AdbcError * error);
 extern "C" AdbcStatusCode AdbcDriverFireboltInit(int version, void * raw_driver, AdbcError * error);
 
-// Whether the libcurl this driver is linked against can speak TLS.  The
-// shipped build sets -DWITH_SSL=OFF, so it cannot; the https:// rejection
-// below is conditioned on this rather than on a build-time define, so the
-// same test is correct for either configuration.
+// Whether the libcurl this driver is linked against can speak TLS. The test is
+// conditioned on this rather than on a build-time define, so it also remains
+// correct for an explicit -DWITH_SSL=OFF build.
 static bool CurlHasTls()
 {
     const curl_version_info_data * v = curl_version_info(CURLVERSION_NOW);
@@ -72,6 +76,33 @@ static AdbcDriver InitDriver()
 
 namespace
 {
+
+void * OpenLibrary(const char * path)
+{
+#if defined(_WIN32)
+    return reinterpret_cast<void *>(LoadLibraryA(path));
+#else
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+#endif
+}
+
+void * FindSymbol(void * library, const char * name)
+{
+#if defined(_WIN32)
+    return reinterpret_cast<void *>(GetProcAddress(reinterpret_cast<HMODULE>(library), name));
+#else
+    return dlsym(library, name);
+#endif
+}
+
+void CloseLibrary(void * library)
+{
+#if defined(_WIN32)
+    FreeLibrary(reinterpret_cast<HMODULE>(library));
+#else
+    dlclose(library);
+#endif
+}
 
 // Build an initialised top-level (struct) schema with `n_columns` unset columns,
 // ready for the caller to type and name each one.
@@ -174,14 +205,17 @@ TEST(AdbcDriverInitTest, FireboltEntryPoint)
         error.release(&error);
 }
 
-// The test binary links the shared library, so dlsym sees exactly what the
-// version script exports: the generic entry point, the driver-specific one a
-// driver manager derives from the driver name, and nothing outside `Adbc*`.
+// Open the shared library directly and check the platform export allowlist: the
+// generic entry point, the driver-specific one a driver manager derives from
+// the driver name, and nothing outside `Adbc*`.
 TEST(AdbcDriverInitTest, ExportsOnlyAdbcEntryPoints)
 {
-    EXPECT_NE(dlsym(RTLD_DEFAULT, "AdbcDriverInit"), nullptr);
-    EXPECT_NE(dlsym(RTLD_DEFAULT, "AdbcDriverFireboltInit"), nullptr);
-    EXPECT_EQ(dlsym(RTLD_DEFAULT, "FireboltAdbcDriverInit"), nullptr);
+    void * library = OpenLibrary(FIREBOLT_ADBC_DRIVER_LIBRARY_PATH);
+    ASSERT_NE(library, nullptr);
+    EXPECT_NE(FindSymbol(library, "AdbcDriverInit"), nullptr);
+    EXPECT_NE(FindSymbol(library, "AdbcDriverFireboltInit"), nullptr);
+    EXPECT_EQ(FindSymbol(library, "FireboltAdbcDriverInit"), nullptr);
+    CloseLibrary(library);
 }
 
 // ============================================================
@@ -449,20 +483,22 @@ TEST(DatabaseInitTest, HttpsUriRejectedWhenCurlHasNoTls)
     //
     // The CA bundle is named explicitly so the outcome does not depend on the
     // host's certificates or SSL_CERT_FILE: test-unit.sh runs on the host.
-    char ca_path[] = "/tmp/firebolt-adbc-test-ca-XXXXXX";
-    const int fd = mkstemp(ca_path);
-    ASSERT_GE(fd, 0);
-    close(fd);
+    const std::filesystem::path ca_path = std::filesystem::temp_directory_path() / "firebolt-adbc-test-ca.pem";
+    {
+        std::ofstream ca_file(ca_path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ca_file.good());
+    }
+    const std::string ca_path_string = ca_path.string();
 
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
     AdbcDatabase db{};
     ASSERT_EQ(driver.DatabaseNew(&db, &error), ADBC_STATUS_OK);
     ASSERT_EQ(driver.DatabaseSetOption(&db, "uri", "https://api.example.com", &error), ADBC_STATUS_OK);
-    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", ca_path, &error), ADBC_STATUS_OK);
+    ASSERT_EQ(driver.DatabaseSetOption(&db, "firebolt.ssl_certificate_path", ca_path_string.c_str(), &error), ADBC_STATUS_OK);
     AdbcStatusCode code = driver.DatabaseInit(&db, &error);
     driver.DatabaseRelease(&db, nullptr);
-    std::remove(ca_path);
+    std::filesystem::remove(ca_path);
     if (CurlHasTls())
     {
         EXPECT_EQ(code, ADBC_STATUS_OK) << "this build has TLS; https:// must be accepted";

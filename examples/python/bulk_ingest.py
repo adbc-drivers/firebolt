@@ -22,7 +22,7 @@ the wrapper is built on.
     python examples/python/bulk_ingest.py
 
 Creates and drops tables named ``adbc_example_*``.
-Configure with FIREBOLT_ADBC_DRIVER / FIREBOLT_URI — see examples/python/README.md.
+Configure with FIREBOLT_URI — see examples/python/README.md.
 """
 
 import argparse
@@ -32,26 +32,17 @@ import adbc_driver_manager
 import pyarrow as pa
 from adbc_driver_manager import dbapi
 
-DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "build",
-    "libadbc_driver_firebolt.so",
-)
-
 TABLE = "adbc_example_events"
 NESTED_TABLE = "adbc_example_nested"
 
 
-def connection_settings() -> tuple[str, dict]:
-    driver = os.environ.get("FIREBOLT_ADBC_DRIVER", DEFAULT_DRIVER)
+def connection_settings() -> dict:
     db_kwargs = {"uri": os.environ.get("FIREBOLT_URI", "http://localhost:3473")}
     if os.environ.get("FIREBOLT_DATABASE"):
         db_kwargs["firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
     if os.environ.get("FIREBOLT_TOKEN"):
         db_kwargs["firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
-    return driver, db_kwargs
+    return db_kwargs
 
 
 def show(cur, sql: str) -> None:
@@ -138,7 +129,7 @@ def nested_types(cur) -> None:
     cur.execute(f"DROP TABLE IF EXISTS {NESTED_TABLE}")
 
 
-def low_level_ingest(driver: str, db_kwargs: dict) -> None:
+def low_level_ingest(db_kwargs: dict) -> None:
     """The same thing through the C-API objects.
 
     adbc_ingest() is a wrapper over exactly this: set the ingest options on a
@@ -149,7 +140,7 @@ def low_level_ingest(driver: str, db_kwargs: dict) -> None:
     table = pa.table({"id": pa.array([7, 8, 9], pa.int32())})
 
     with (
-        adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db,
+        adbc_driver_manager.AdbcDatabase(driver="firebolt", **db_kwargs) as db,
         adbc_driver_manager.AdbcConnection(db) as conn,
     ):
         with adbc_driver_manager.AdbcStatement(conn) as stmt:
@@ -177,18 +168,18 @@ def low_level_ingest(driver: str, db_kwargs: dict) -> None:
 
 def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
-    driver, db_kwargs = connection_settings()
+    db_kwargs = connection_settings()
 
     # autocommit=True so each ingest lands immediately and is visible to the
     # reads that follow.
     with (
-        dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn,
+        dbapi.connect(driver="firebolt", db_kwargs=db_kwargs, autocommit=True) as conn,
         conn.cursor() as cur,
     ):
         flat_modes(cur)
         nested_types(cur)
 
-    low_level_ingest(driver, db_kwargs)
+    low_level_ingest(db_kwargs)
 
 
 if __name__ == "__main__":

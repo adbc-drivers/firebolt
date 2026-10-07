@@ -17,7 +17,7 @@
 
     python examples/python/query_to_pandas.py
 
-Configure with FIREBOLT_ADBC_DRIVER / FIREBOLT_URI — see examples/python/README.md.
+Configure with FIREBOLT_URI — see examples/python/README.md.
 """
 
 import argparse
@@ -25,23 +25,14 @@ import os
 
 from adbc_driver_manager import dbapi
 
-DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "build",
-    "libadbc_driver_firebolt.so",
-)
 
-
-def connection_settings() -> tuple[str, dict]:
-    driver = os.environ.get("FIREBOLT_ADBC_DRIVER", DEFAULT_DRIVER)
+def connection_settings() -> dict:
     db_kwargs = {"uri": os.environ.get("FIREBOLT_URI", "http://localhost:3473")}
     if os.environ.get("FIREBOLT_DATABASE"):
         db_kwargs["firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
     if os.environ.get("FIREBOLT_TOKEN"):
         db_kwargs["firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
-    return driver, db_kwargs
+    return db_kwargs
 
 
 QUERY = """
@@ -56,10 +47,10 @@ FROM generate_series(1, 5) AS s(n)
 
 def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
-    driver, db_kwargs = connection_settings()
+    db_kwargs = connection_settings()
 
     with (
-        dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn,
+        dbapi.connect(driver="firebolt", db_kwargs=db_kwargs) as conn,
         conn.cursor() as cur,
     ):
         # --- pyarrow.Table: the native shape, no conversion cost ---------

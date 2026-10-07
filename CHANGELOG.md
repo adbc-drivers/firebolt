@@ -24,11 +24,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **TLS.** Released builds now link BoringSSL, so `https://` endpoints work. The peer is
-  always verified. The CA bundle is found at run time — `SSL_CERT_FILE`, then the
-  Debian, RHEL and SUSE locations — or named with the new
-  `firebolt.ssl_certificate_path` option. A missing bundle fails `AdbcDatabaseInit`
-  with a message naming every path tried.
+- **Native platform builds.** The generated build pipeline now produces and tests
+  Linux x86_64/aarch64, macOS arm64, and Windows x86_64 drivers. macOS uses Secure
+  Transport and Windows uses Schannel; Linux release artifacts continue to use
+  BoringSSL with a manylinux_2_28 baseline.
+- **TLS.** Released builds now support `https://` and always verify the peer. Linux
+  links BoringSSL; macOS and Windows use their native TLS backends and trust stores.
+  On Linux a CA bundle is found at run time — `SSL_CERT_FILE`, then the Debian,
+  RHEL and SUSE locations — or named with the new `firebolt.ssl_certificate_path`
+  option. A missing bundle fails `AdbcDatabaseInit` with a message naming every
+  path tried.
 - **`firebolt://` URIs.** `uri` accepts `firebolt://<host>[:<port>]/[<database>]`, the
   shape of Firebolt's SDK connection string: the path names the database (an explicit
   `firebolt.database` wins) and `ssl_mode` picks the transport — `verify-full`, the
@@ -43,10 +48,12 @@ All notable changes to this project are documented here. The format follows
   manager derives from the driver name. `FireboltAdbcDriverInit` is no longer exported
   (only `Adbc*` symbols are); a manifest with `entrypoint = "FireboltAdbcDriverInit"`
   must switch to the new name or drop the line — `AdbcDriverInit` still works.
-- **The library is `libadbc_driver_firebolt.so`** (was `libfirebolt_adbc.so`), the
+- **The library is `libadbc_driver_firebolt` with the platform extension** (was
+  `libfirebolt_adbc.so`), the
   Foundry file name from which a driver manager derives `AdbcDriverFireboltInit`. Releases
-  ship one `adbc_driver_firebolt-linux-<arch>.tar.gz` per architecture holding the
-  library, `LICENSE.txt` and `NOTICE.txt`, instead of a renamed `.so` per architecture.
+  ship one `firebolt_<platform>_<arch>_<version>.tar.gz` per target holding the
+  library, a combined project and third-party `LICENSE.txt`, and `NOTICE.txt`, instead
+  of a renamed `.so` per architecture.
 - **Driver options are named `firebolt.*`** (`firebolt.token`, `firebolt.database`,
   `firebolt.timeout_sec`, `firebolt.ssl_certificate_path`) instead of `adbc.firebolt.*`,
   per the Foundry option-naming rule.

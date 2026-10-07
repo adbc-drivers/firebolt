@@ -15,9 +15,8 @@
 #include "TlsConfig.h"
 
 #include <cstdlib>
-
-#include <unistd.h>
-#include <sys/stat.h>
+#include <filesystem>
+#include <fstream>
 
 namespace firebolt::adbc
 {
@@ -72,15 +71,23 @@ CaBundleResult resolveCaBundle(const std::string & configured_path, const EnvLoo
 
 CaBundleResult resolveCaBundle(const std::string & configured_path)
 {
+    const char * raw_env_path = std::getenv("SSL_CERT_FILE");
+    const std::string env_path = raw_env_path ? raw_env_path : "";
+#if defined(__APPLE__) || defined(_WIN32)
+    // Secure Transport and Schannel use the native certificate store when
+    // CURLOPT_CAINFO is not set. Explicit file configuration still wins.
+    if (configured_path.empty() && env_path.empty())
+        return {};
+#endif
     return resolveCaBundle(
         configured_path,
-        [](const char * name) {
-            const char * value = std::getenv(name);
-            return std::string(value ? value : "");
-        },
+        [&env_path](const char * name) { return std::string(name) == "SSL_CERT_FILE" ? env_path : std::string(); },
         [](const std::string & path) {
-            struct stat st = {};
-            return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && ::access(path.c_str(), R_OK) == 0;
+            std::error_code error;
+            if (!std::filesystem::is_regular_file(path, error))
+                return false;
+            std::ifstream input(path, std::ios::binary);
+            return input.good();
         });
 }
 

@@ -20,7 +20,7 @@ because it is the one you need for anything the DBAPI wrapper does not expose.
 
     python examples/python/quickstart.py
 
-Configure with FIREBOLT_ADBC_DRIVER / FIREBOLT_URI — see examples/python/README.md.
+Configure with FIREBOLT_URI — see examples/python/README.md.
 """
 
 import argparse
@@ -30,18 +30,9 @@ import adbc_driver_manager
 import pyarrow as pa
 from adbc_driver_manager import dbapi
 
-DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "build",
-    "libadbc_driver_firebolt.so",
-)
 
-
-def connection_settings() -> tuple[str, dict]:
-    """Driver path plus the database options, read from the environment."""
-    driver = os.environ.get("FIREBOLT_ADBC_DRIVER", DEFAULT_DRIVER)
+def connection_settings() -> dict:
+    """Database options read from the environment."""
     db_kwargs = {"uri": os.environ.get("FIREBOLT_URI", "http://localhost:3473")}
     if os.environ.get("FIREBOLT_DATABASE"):
         db_kwargs["firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
@@ -49,13 +40,13 @@ def connection_settings() -> tuple[str, dict]:
     # unset against an engine with authentication disabled.
     if os.environ.get("FIREBOLT_TOKEN"):
         db_kwargs["firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
-    return driver, db_kwargs
+    return db_kwargs
 
 
-def via_dbapi(driver: str, db_kwargs: dict) -> None:
+def via_dbapi(db_kwargs: dict) -> None:
     """The PEP 249 interface: connect, cursor, execute, fetch."""
     with (
-        dbapi.connect(driver=driver, db_kwargs=db_kwargs) as conn,
+        dbapi.connect(driver="firebolt", db_kwargs=db_kwargs) as conn,
         conn.cursor() as cur,
     ):
         cur.execute("SELECT 1 AS n, 'hello' AS greeting")
@@ -72,7 +63,7 @@ def via_dbapi(driver: str, db_kwargs: dict) -> None:
         )
 
 
-def via_low_level(driver: str, db_kwargs: dict) -> None:
+def via_low_level(db_kwargs: dict) -> None:
     """The C-API objects the DBAPI layer wraps.
 
     Worth knowing because the statement object is where the ingest options and
@@ -80,7 +71,7 @@ def via_low_level(driver: str, db_kwargs: dict) -> None:
     stream directly with no copy.
     """
     with (
-        adbc_driver_manager.AdbcDatabase(driver=driver, **db_kwargs) as db,
+        adbc_driver_manager.AdbcDatabase(driver="firebolt", **db_kwargs) as db,
         adbc_driver_manager.AdbcConnection(db) as conn,
         adbc_driver_manager.AdbcStatement(conn) as stmt,
     ):
@@ -92,14 +83,14 @@ def via_low_level(driver: str, db_kwargs: dict) -> None:
 def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
 
-    driver, db_kwargs = connection_settings()
-    print(f"driver: {driver}\nuri:    {db_kwargs['uri']}\n")
+    db_kwargs = connection_settings()
+    print(f"driver: firebolt\nuri:    {db_kwargs['uri']}\n")
 
     print("=== via adbc_driver_manager.dbapi ===")
-    via_dbapi(driver, db_kwargs)
+    via_dbapi(db_kwargs)
 
     print("\n=== via the low-level ADBC objects ===")
-    via_low_level(driver, db_kwargs)
+    via_low_level(db_kwargs)
 
 
 if __name__ == "__main__":

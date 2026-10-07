@@ -18,7 +18,8 @@ limitations under the License.
 
 ## Project Overview
 
-A standalone C++ shared library (`libadbc_driver_firebolt.so`) implementing the
+A standalone C++ shared library (`libadbc_driver_firebolt.so`, `.dylib`, or
+`.dll`) implementing the
 [ADBC 1.1.0](https://arrow.apache.org/adbc/) C API against Firebolt's HTTP query
 interface. Client-side only — loaded at runtime by ADBC driver managers (Python
 `adbc_driver_manager`, R `adbcdrivermanager`, etc.).
@@ -41,7 +42,10 @@ private keys, including test material: generate test certificates at run time.
 ├── README.md, OPTIONS.md, CHANGELOG.md, CONTRIBUTING.md
 ├── CMakeLists.txt                    # standalone build; project(VERSION) is the one version number
 ├── adbc.h                            # vendored ADBC 1.1.0 C API header
-├── adbc_driver_firebolt.version      # linker script: only the ADBC entry points are exported
+├── manifest.toml                     # driver package manifest template
+├── license.tpl                       # combined-license section header
+├── adbc_driver_firebolt.version      # Linux linker export allowlist
+├── adbc_driver_firebolt.exports      # macOS linker export allowlist
 ├── submodule/                        # every non-system dependency (curl, BoringSSL, nanoarrow, json, …)
 ├── src/                              # the driver
 │   ├── FireboltAdbcDriver.cpp        # ADBC entry points: database, connection, statement
@@ -51,61 +55,53 @@ private keys, including test material: generate test certificates at run time.
 │   ├── unit/                         # GoogleTest, no server needed
 │   └── integration/                  # pytest in a runner container (runner.py, conftest.py):
 │                                     #   a 1-node engine, a mock server, or an FB2 SaaS engine
-├── scripts/                          # build.sh, test-unit.sh, test-integration.sh, clang-tidy.sh (CI runs these too)
-├── docker/builder/                   # pinned build image (Ubuntu 22.04 + clang-18) for glibc portability
+├── ci/scripts/                       # adbc-make build, test, and license hooks
+├── scripts/clang-tidy.sh             # clang-tidy against the generated compile database
 ├── docs/, examples/python/           # user docs and runnable examples
 └── .github/workflows/                # CI (lint, build, tests) and releases
 ```
 
 ## Build
 
-### Recommended: `./scripts/build.sh`
+### Recommended: `pixi run make`
 
-Builds inside the pinned `firebolt-adbc-builder:latest` image (Ubuntu 22.04 +
-clang-18), which it builds from `docker/builder/Dockerfile` on first use. The
-older glibc is the point: the resulting `.so` needs only glibc 2.34, so it loads
-on distributions older than the host. This is what CI and the release workflow
-use, and it passes `-DFIREBOLT_ADBC_BUILD_TESTS=ON -DWITH_SSL=ON`.
+Delegates to `adbc-make`, which builds for the current host through
+`ci/scripts/build.sh`. Generated CI and release workflows use the same hook.
+Linux release artifacts build in the public `adbc-drivers/dev` manylinux_2_28
+C++ image; macOS and Windows build natively.
 
 ```bash
-./scripts/build.sh
-# → build/libadbc_driver_firebolt.so -> libadbc_driver_firebolt.so.0 -> libadbc_driver_firebolt.so.0.1.0
+pixi run make
+# → build/libadbc_driver_firebolt.{so,dylib,dll}
 ```
 
-### Direct host build (faster to iterate, not shippable)
-
-Carries the host's glibc requirement, so never release the output.
+For a debug build with C++ unit tests, invoke the repository hooks directly. For
+example, on Apple Silicon macOS:
 
 ```bash
 git submodule update --init --recursive
-cmake --preset standalone-clang -DFIREBOLT_ADBC_BUILD_TESTS=ON
-cmake --build build -j$(nproc)
+./ci/scripts/build.sh test macos arm64
+./ci/scripts/test.sh macos arm64
 ```
 
-`standalone-gcc` is the same dependency policy with GCC. Note that a `build/`
-directory configured on the host can break `scripts/build.sh` afterwards — a
-`ccache` compiler launcher baked into `CMakeCache.txt` does not exist inside the
-builder image. Delete `build/` and re-run.
+Adjust the platform and architecture arguments as needed.
 
 ## Testing
 
-The reusable scripts under `scripts/` are the canonical entry points — both
-local development and CI invoke the same commands.
+CI and local C++ development use `ci/scripts/build.sh` and `ci/scripts/test.sh`.
 
 ```bash
-# Build with -DFIREBOLT_ADBC_BUILD_TESTS=ON (idempotent):
-./scripts/build.sh
-
-# C++ unit tests (no server needed):
-./scripts/test-unit.sh
+# Native C++ build and unit tests:
+./ci/scripts/build.sh test macos arm64
+./ci/scripts/test.sh macos arm64
 
 # Integration tests against a 1-node Firebolt engine (Docker required):
-./scripts/test-integration.sh                                    # all tests
-./scripts/test-integration.sh -k test_connect                    # filter by name
-./scripts/test-integration.sh tests/dml                          # one suite
-./scripts/test-integration.sh --engine-image=...:latest -x       # override engine image
+./tests/integration/runner.py                                    # all tests
+./tests/integration/runner.py -k test_connect                    # filter by name
+./tests/integration/runner.py tests/dml                          # one suite
+./tests/integration/runner.py --engine-image=...:tag -x          # override engine image
 
-# Linters (pre-commit; clang-tidy needs a prior build.sh):
+# Linters (clang-tidy needs a generated Linux test build):
 pre-commit run --all-files
 ./scripts/clang-tidy.sh                                          # clang-tidy alone
 ```
@@ -146,9 +142,10 @@ Beyond what pre-commit and clang-tidy enforce:
   `-fPIC` (it targets an executable) so it can't be linked into a shared library.
   nanoarrow is Apache Arrow's official embedded C implementation: zero external deps,
   fully PIC, ~30 KB compiled, supports the full Arrow IPC stream format.
-- **Static third-party deps** — `curl`, `BoringSSL`, `c-ares`, `nanoarrow`, and test
-  dependencies are linked statically from `submodule` build outputs. System runtime
-  libs (e.g. `libc`, `libm`, `libdl`, `libpthread`) remain dynamic.
+- **Static third-party deps** — `curl`, `nanoarrow`, and test dependencies are linked
+  statically from `submodule` build outputs. Linux also links BoringSSL and c-ares;
+  macOS uses Secure Transport and Windows uses Schannel. System runtime libraries
+  remain dynamic.
 - **JSON goes through `nlohmann/json`, not hand-rolled parsing** — two protocol
   surfaces are JSON: the `query_parameters` setting the driver writes and the
   `describe_parameters` payload it reads. The library owns escaping, UTF-8 validation
@@ -163,19 +160,14 @@ Beyond what pre-commit and clang-tidy enforce:
   libstdc++ gained those in 13, and the builder image has 11 — so digits go through
   `snprintf` and `withTimeUnit` dispatches an Arrow time unit to its duration type.
   Hence no vendored date library.
-- **Version script** (`adbc_driver_firebolt.version`) — exports only `AdbcDriverInit` and
-  `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from the
-  driver name; all other symbols (including libc++ internals) are hidden, and nothing
-  outside `Adbc*` is exported.
-- **clang-tidy runs in the builder image, from `compile_commands.json`** — the build
-  exports it (`CMAKE_EXPORT_COMPILE_COMMANDS`), and `scripts/clang-tidy.sh` runs the
-  image's `clang-tidy-18`, so every machine and CI apply one version to the flags the
-  driver is really compiled with. The checks are a curated list plus naming rules,
-  without `google-runtime-int` (`long` is libcurl's API type); all warnings are
-  errors. The header filter is passed by the script, anchored
-  at the repository root, because a relative one would also match `submodule/*/src/`.
-  The pre-commit hook needs a build, so CI's lint job skips it and the build job runs
-  the script.
+- **Export allowlists** — Linux's `adbc_driver_firebolt.version` and macOS's
+  `adbc_driver_firebolt.exports` export only `AdbcDriverInit` and
+  `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from
+  the driver name. Windows marks those entry points with `__declspec(dllexport)`.
+- **clang-tidy uses the generated `compile_commands.json`** — the build exports the
+  database, and `scripts/clang-tidy.sh` runs `run-clang-tidy-18` from the Linux CI
+  host. Checkout-only pre-commit runs skip the hook until a Linux test build exists;
+  generated build CI invokes it after compilation.
 - **Post-build dependency report** — every build prints concise `DT_NEEDED` `.so` names
   for `libadbc_driver_firebolt.so` so dynamic dependencies are visible in Ninja logs.
 - **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` wraps table
@@ -204,7 +196,7 @@ Beyond what pre-commit and clang-tidy enforce:
   authoritative. `configure_file` renders `src/Version.h.in` into
   `build/generated/Version.h`, whose `FIREBOLT_ADBC_VERSION` supplies
   `ADBC_INFO_DRIVER_VERSION`; the same value sets the target `VERSION`/`SOVERSION`.
-  `release.yaml` refuses to publish when the git tag disagrees with it.
+  `script_release.yaml` refuses to publish when the git tag disagrees with it.
 - **A bad option is an error, not a shrug** — an unrecognised `firebolt.*` database
   key returns `ADBC_STATUS_NOT_FOUND` (keys outside that namespace stay accepted, since
   the driver manager sets some itself), a malformed `timeout_sec` returns

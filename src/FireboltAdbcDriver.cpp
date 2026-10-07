@@ -23,6 +23,7 @@
 #include "IngestSqlBuilder.h"
 #include "QueryParameters.h"
 #include "ScopeGuard.h"
+#include "StringUtils.h"
 #include "TlsConfig.h"
 #include "adbc.h"
 #include "fb2/Fb2LegacyMode.h"
@@ -33,11 +34,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <variant>
-#include <strings.h>
 
 #include <curl/curl.h>
 
@@ -55,7 +54,7 @@ static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::st
 {
     if (e)
     {
-        e->message = strdup(msg.c_str());
+        e->message = duplicateString(msg);
         e->release = [](AdbcError * err) {
             free(err->message);
             err->message = nullptr;
@@ -84,7 +83,16 @@ static AdbcStatusCode HttpRespToStatus(const HttpResponse & resp, AdbcError * er
 static bool hasSchemePrefix(const std::string & url, const char * scheme)
 {
     const size_t n = strlen(scheme);
-    return url.size() >= n && strncasecmp(url.c_str(), scheme, n) == 0;
+    if (url.size() < n)
+        return false;
+    for (size_t i = 0; i < n; ++i)
+    {
+        const char actual = url[i] >= 'A' && url[i] <= 'Z' ? static_cast<char>(url[i] - 'A' + 'a') : url[i];
+        const char expected = scheme[i] >= 'A' && scheme[i] <= 'Z' ? static_cast<char>(scheme[i] - 'A' + 'a') : scheme[i];
+        if (actual != expected)
+            return false;
+    }
+    return true;
 }
 
 // Whether the libcurl we are linked against can speak TLS.  Asked of libcurl
@@ -128,16 +136,15 @@ static constexpr const char * TRANSACTION_SEQUENCE_PARAM = "transaction_sequence
 // curl global init / cleanup (once per process)
 // ============================================================
 
-static std::once_flag g_curl_init_flag;
-
 static void initCurl()
 {
-    std::call_once(g_curl_init_flag, []() { curl_global_init(CURL_GLOBAL_ALL); });
-}
-
-__attribute__((destructor)) static void cleanupCurl()
-{
-    curl_global_cleanup();
+    struct CurlGlobalState
+    {
+        CurlGlobalState() { curl_global_init(CURL_GLOBAL_ALL); }
+        ~CurlGlobalState() { curl_global_cleanup(); }
+    };
+    static const CurlGlobalState state;
+    (void)state;
 }
 
 // Execute a simple SQL statement (no result rows expected).
@@ -1256,17 +1263,23 @@ static AdbcStatusCode PopulateDriver(AdbcDriver * driver, AdbcError * error)
 } // namespace firebolt::adbc
 
 // ============================================================
-// Public entry points (C linkage, exported by version script)
+// Public entry points (C linkage, exported by the platform allowlist)
 // ============================================================
 
-extern "C" __attribute__((visibility("default"))) AdbcStatusCode AdbcDriverInit(int version, void * raw_driver, AdbcError * error)
+#if defined(_WIN32)
+#    define FIREBOLT_ADBC_EXPORT __declspec(dllexport)
+#else
+#    define FIREBOLT_ADBC_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" FIREBOLT_ADBC_EXPORT AdbcStatusCode AdbcDriverInit(int version, void * raw_driver, AdbcError * error)
 {
     if (version != ADBC_VERSION_1_0_0 && version != ADBC_VERSION_1_1_0)
     {
         if (error)
         {
             error->vendor_code = 0;
-            error->message = strdup("Unsupported ADBC version");
+            error->message = firebolt::adbc::duplicateString("Unsupported ADBC version");
             error->release = [](AdbcError * e) {
                 free(e->message);
                 e->message = nullptr;
@@ -1280,7 +1293,7 @@ extern "C" __attribute__((visibility("default"))) AdbcStatusCode AdbcDriverInit(
 
 // The driver-specific entry point a driver manager derives from the driver name
 // ("firebolt" -> AdbcDriverFireboltInit), so several drivers can share a process.
-extern "C" __attribute__((visibility("default"))) AdbcStatusCode AdbcDriverFireboltInit(int version, void * raw_driver, AdbcError * error)
+extern "C" FIREBOLT_ADBC_EXPORT AdbcStatusCode AdbcDriverFireboltInit(int version, void * raw_driver, AdbcError * error)
 {
     return AdbcDriverInit(version, raw_driver, error);
 }

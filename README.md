@@ -24,7 +24,8 @@ so a query lands straight in pyarrow, pandas, or polars.
 It is a client-side library only: a driver manager
 ([Python](https://pypi.org/project/adbc-driver-manager/),
 [R](https://cran.r-project.org/package=adbcdrivermanager), Go, …) loads
-`libadbc_driver_firebolt.so` at runtime. Nothing needs to be installed on the server.
+the `adbc_driver_firebolt` shared library at runtime. Nothing needs to be installed
+on the server.
 
 ## Supported today
 
@@ -32,9 +33,9 @@ Read this before you build anything on it.
 
 | | |
 |---|---|
-| **Transport** | `http://` and `https://`. TLS verifies the peer against the system CA bundle, found at run time; `firebolt.ssl_certificate_path` names another. There is no way to switch verification off. |
+| **Transport** | `http://` and `https://`. TLS verifies the peer against the system trust store (or a discovered CA bundle on Linux); `firebolt.ssl_certificate_path` names another. There is no way to switch verification off. |
 | **Authentication** | Engines with authentication **disabled**, plus an optional bearer token you obtained elsewhere. Firebolt's discovery-based OAuth flow is **not** implemented. See [docs/authentication.md](docs/authentication.md). |
-| **Platforms** | Linux x86_64 and aarch64, glibc 2.34 or newer. No macOS or Windows build. |
+| **Platforms** | Linux x86_64/aarch64 (glibc 2.28+), macOS arm64, and Windows x86_64. |
 | **ADBC** | The full ADBC 1.0.0 function set. Reports itself as 1.1.0, but the 1.1.0-only entry points are not implemented — see [Feature & Type Support](#feature--type-support). |
 
 In practice that means this driver is ready for local development, CI, and
@@ -52,26 +53,18 @@ Takes about two minutes and needs Docker plus Python 3.9+.
 pip install adbc-driver-manager pyarrow
 ```
 
-**2. Download the driver**
+**2. Install the driver**
 
-Grab `adbc_driver_firebolt-linux-x86_64.tar.gz` (or `-aarch64`) from the
-[latest release](https://github.com/adbc-drivers/firebolt/releases/latest) and
-unpack `libadbc_driver_firebolt.so` from it:
+Install [dbc](https://docs.columnar.tech/dbc), then install the Firebolt driver:
 
 ```bash
-curl -sSLO https://github.com/adbc-drivers/firebolt/releases/latest/download/adbc_driver_firebolt-linux-x86_64.tar.gz
-curl -sSLO https://github.com/adbc-drivers/firebolt/releases/latest/download/adbc_driver_firebolt-linux-x86_64.tar.gz.sha256
-sha256sum -c adbc_driver_firebolt-linux-x86_64.tar.gz.sha256
-tar -xzf adbc_driver_firebolt-linux-x86_64.tar.gz
+dbc install firebolt --pre
 ```
-
-Keep the file name as it is: a driver manager derives the entry point
-`AdbcDriverFireboltInit` from it.
 
 **3. Start a Firebolt engine**
 
 ```bash
-docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:latest
+docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
 ```
 
 With no configuration the engine starts as a single node with authentication
@@ -88,7 +81,7 @@ curl -fsS http://localhost:3473/ping && echo ok
 import adbc_driver_manager.dbapi as dbapi
 
 with dbapi.connect(
-    driver="./libadbc_driver_firebolt.so",
+    driver="firebolt",
     db_kwargs={"uri": "http://localhost:3473"},
 ) as conn:
     with conn.cursor() as cur:
@@ -107,14 +100,6 @@ greeting: [["hello"]]
 
 That is the whole setup. Runnable versions of everything below are in
 [`examples/python/`](examples/python).
-
-### Naming the driver instead of its path
-
-If you would rather write `driver="firebolt"` than an absolute path, install the
-[`firebolt.toml`](firebolt.toml) manifest into a directory the driver manager
-searches (`~/.config/adbc/drivers`, `/etc/adbc/drivers`, or anything on
-`ADBC_DRIVER_PATH`) and point its `Driver.shared` entries at your `.so`. Needs
-`adbc-driver-manager >= 1.5`.
 
 ## Common tasks
 
@@ -448,18 +433,19 @@ today's names to the canonical ones is in
 ## Build from source
 
 Only needed to develop the driver — consumers should use a
-[release](https://github.com/adbc-drivers/firebolt/releases). Requires Docker
-and git.
+[release](https://github.com/adbc-drivers/firebolt/releases). Requires Docker,
+git, and [Pixi](https://pixi.sh/).
 
 ```bash
-./scripts/build.sh              # → build/libadbc_driver_firebolt.so
-./scripts/test-unit.sh          # C++ unit tests, no server needed
-./scripts/test-integration.sh   # pytest against a throwaway 1-node engine
+git submodule update --init --recursive
+pixi run make                   # native library for the current host
 ```
 
-`scripts/build.sh` builds inside a pinned Ubuntu 22.04 + clang-18 image, so the
-resulting `.so` runs on older glibc than the host. Details and the dependency
-policy are in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+`pixi run make` uses the generated `adbc-make` configuration and produces `.so`,
+`.dylib`, or `.dll` for the current host. Linux release builds use the shared
+`adbc-drivers/dev` manylinux_2_28 C++ image, so their `.so` supports glibc 2.28
+and newer. Details and the dependency policy are in [CONTRIBUTING.md](CONTRIBUTING.md)
+and [AGENTS.md](AGENTS.md).
 
 ## Documentation
 
@@ -473,4 +459,5 @@ policy are in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ## License
 
-Apache 2.0 — see [LICENSE.txt](LICENSE.txt) and [NOTICE.txt](NOTICE.txt).
+Apache 2.0 — see [LICENSE.txt](LICENSE.txt) and [NOTICE.txt](NOTICE.txt). Release
+packages also include the licenses of all statically linked dependencies.

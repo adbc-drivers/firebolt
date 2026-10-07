@@ -24,14 +24,13 @@ standalone — copy a single file out of here and it still works.
 ```bash
 pip install adbc-driver-manager pyarrow
 pip install pandas polars     # optional, for query_to_pandas.py
+dbc install firebolt --pre
 ```
 
-You also need the driver and an engine to talk to. Either download a
-[release](https://github.com/adbc-drivers/firebolt/releases/latest) or build
-locally with `./scripts/build.sh`, then start an engine:
+You also need an engine to talk to:
 
 ```bash
-docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:latest
+docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
 ```
 
 A freshly started engine has authentication disabled and a database named
@@ -43,21 +42,13 @@ All examples read the same environment variables:
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `FIREBOLT_ADBC_DRIVER` | `../../build/libadbc_driver_firebolt.so` | Path to the driver `.so`. Point this at your download. |
-| `FIREBOLT_URI` | `http://localhost:3473` | Engine HTTP endpoint. Must be `http://` — this build has no TLS. |
+| `FIREBOLT_URI` | `http://localhost:3473` | Engine HTTP or HTTPS endpoint. |
 | `FIREBOLT_DATABASE` | *(server default)* | Database name, if you need a specific one. |
 | `FIREBOLT_TOKEN` | *(unset)* | Bearer token, only for an engine that requires one. |
 
-With the defaults, and the driver built locally, the examples run as-is:
+With the defaults, the examples run as-is:
 
 ```bash
-python examples/python/quickstart.py
-```
-
-Against a downloaded driver:
-
-```bash
-export FIREBOLT_ADBC_DRIVER=$PWD/libadbc_driver_firebolt.so
 python examples/python/quickstart.py
 ```
 

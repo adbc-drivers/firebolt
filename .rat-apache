@@ -15,3 +15,4 @@
 # Files taken from Apache projects. They carry the ASF header below the ADBC
 # Drivers Contributors copyright and a "This file has been modified" line.
 adbc.h
+.github/workflows/dev_issues.yaml

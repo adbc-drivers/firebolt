@@ -108,7 +108,7 @@ Status parseTokenResponse(const Fb2HttpResult & result, const std::string & endp
     constexpr long long max_lifetime_sec = 365LL * 24 * 3600;
     const long long expires_in
         = body.contains("expires_in") && body["expires_in"].is_number_integer() ? body["expires_in"].get<long long>() : 0;
-    grant.expires_in = std::chrono::seconds(std::min(expires_in, max_lifetime_sec));
+    grant.expires_in = std::chrono::seconds((std::min)(expires_in, max_lifetime_sec));
     return {};
 }
 

@@ -31,31 +31,35 @@ Policy](https://github.com/adbc-drivers/firebolt?tab=security-ov-file#readme).
 
 ## Prerequisites
 
-Docker and git. That is all — the toolchain, the compiler, and every dependency
-live inside a builder image or a git submodule, so nothing needs installing on
-the host.
+Docker, git, and [Pixi](https://pixi.sh/). The compiler and native dependencies
+live inside a shared builder image or a git submodule.
 
 For the linters, also [pre-commit](https://pre-commit.com/), Python 3.14 and a
 Java runtime (the license check runs Apache RAT); see [Linting](#linting).
 
 ## Build and test
 
-The three scripts under `scripts/` are the canonical entry points. CI runs the
-same commands, so a green local run means a green CI run.
+The generated ADBC build entry point builds a native library for the host:
 
 ```bash
-./scripts/build.sh              # → build/libadbc_driver_firebolt.so (+ unit test binary)
-./scripts/test-unit.sh          # C++ unit tests via ctest, no server needed
-./scripts/test-integration.sh   # pytest against a throwaway 1-node engine
+git submodule update --init --recursive
+pixi run make                   # .so on Linux, .dylib on macOS, .dll on Windows
 ```
 
-All three are idempotent and can be run from anywhere in the repository.
+For a debug build with C++ unit tests, call the same hooks used by generated CI.
+For example, on Apple Silicon macOS:
 
-`scripts/build.sh` initialises the submodules, then configures and builds inside
-`firebolt-adbc-builder:latest`, which it builds from `docker/builder/Dockerfile`
-on first use. The image is Ubuntu 22.04 + clang-18; the older glibc is
-deliberate, so the resulting `.so` loads on distributions older than your host.
-Delete the image (`docker rmi firebolt-adbc-builder:latest`) to force a rebuild.
+```bash
+./ci/scripts/build.sh test macos arm64
+./ci/scripts/test.sh macos arm64
+```
+
+Replace the platform and architecture arguments as needed. These commands are
+idempotent and can be run from anywhere in the repository.
+
+Linux release builds use the shared `adbc-drivers/dev` manylinux_2_28 C++ image.
+This gives release binaries a glibc 2.28 compatibility baseline without
+maintaining a repository-specific builder image.
 
 ### Linting
 
@@ -69,12 +73,10 @@ pre-commit run --all-files      # or run them all by hand
 ./scripts/clang-tidy.sh         # clang-tidy alone, over all of src/ and tests/unit/
 ```
 
-clang-tidy reads `build/compile_commands.json` and runs inside the builder
-image, so it needs a `./scripts/build.sh` first. If the image was built before
-clang-tidy was added to it, delete it and re-run the build. Its checks, in
-`.clang-tidy`, treat every warning as an error.
-`SKIP=clang-tidy git commit` skips it when there is no build at hand; CI runs it
-regardless.
+clang-tidy reads the generated Linux test build's `compile_commands.json` and
+runs with `run-clang-tidy-18` from the Linux CI host. A checkout-only pre-commit
+run skips it when that build does not exist; generated build CI invokes it after
+compilation. Its checks, in `.clang-tidy`, treat every warning as an error.
 
 A file that cannot carry a header (JSON) is listed in `.rat-excludes`; a file
 taken from an Apache project is listed in `.rat-apache`.
@@ -82,16 +84,16 @@ taken from an Apache project is listed in `.rat-apache`.
 ### Running a subset of the tests
 
 ```bash
-./scripts/test-integration.sh tests/dml                 # one suite
-./scripts/test-integration.sh -k test_connect           # by test name
-./scripts/test-integration.sh -x                        # stop at first failure
-./scripts/test-integration.sh --engine-image=...:tag    # a different engine build
+./tests/integration/runner.py tests/dml                 # one suite
+./tests/integration/runner.py -k test_connect           # by test name
+./tests/integration/runner.py -x                        # stop at first failure
+./tests/integration/runner.py --engine-image=...:tag -x # a different engine build
 
-cd build && ./adbc_driver_tests --gtest_filter='DatabaseOptionTest.*'
+./build/ci-test-macos-arm64/adbc_driver_tests --gtest_filter='DatabaseOptionTest.*'
 ```
 
-The engine image is pulled fresh on every run, because it is a floating `:latest`
-tag; a cached copy is only used if the pull fails.
+The requested engine image is pulled before every run; a cached copy is only
+used if the pull fails.
 
 ### Working against a long-lived engine
 
@@ -99,25 +101,21 @@ For iterating on a single behaviour it is quicker to keep one engine up and talk
 to it directly:
 
 ```bash
-docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:latest
+docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
 python3 examples/python/quickstart.py
 ```
 
 ### Building outside Docker
 
-Supported, and faster to iterate on, but the resulting `.so` carries your host's
-glibc requirement — never ship it.
+`pixi run make` builds natively on macOS and Windows. On Linux, a direct call to
+the CI build hook is useful for quick iteration, but its `.so` carries the host's
+glibc requirement and must not be released:
 
 ```bash
 git submodule update --init --recursive
-cmake --preset standalone-clang -DFIREBOLT_ADBC_BUILD_TESTS=ON
-cmake --build build -j"$(nproc)"
+./ci/scripts/build.sh test linux amd64
+./ci/scripts/test.sh linux amd64
 ```
-
-If you have configured `build/` this way and then run `scripts/build.sh`, the
-Docker build can fail on cached host paths — a `ccache` launcher baked into
-`CMakeCache.txt`, for instance, which does not exist in the builder image.
-Delete `build/` and re-run.
 
 ## Conventions
 
@@ -168,9 +166,17 @@ tag.
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-`.github/workflows/release.yaml` refuses to publish if the tag and the CMake
-version disagree, then builds for x86_64 and aarch64 and attaches the `.so`,
-its `sha256`, and `firebolt.toml` to the release.
+`.github/workflows/script_release.yaml` builds and packages tagged releases.
+Each release archive gets a combined license from
+`ci/scripts/generate_license.sh`; update that script when a runtime dependency
+is added or removed.
+
+The CI workflows and `pixi.toml` are generated from
+`.github/workflows/generate.toml`. Regenerate them from the repository root:
+
+```bash
+uvx --from git+https://github.com/adbc-drivers/dev adbc-gen-workflow generate "$(pwd)"
+```
 
 ## Documentation that has to stay true
 
@@ -186,6 +192,5 @@ make specific claims, and a stale claim is worse than no claim:
 
 ## Pull requests
 
-`enable-merge-to-main.yaml` runs the pre-commit hooks, build, clang-tidy, unit
-tests, integration tests, and the examples smoke check on every PR, with a merge gate that requires all of it to
-pass.
+`script_test.yaml` runs the generated build, unit, and packaging jobs on every
+pull request.

@@ -13,6 +13,10 @@
 # limitations under the License.
 
 /build*/
+/.pixi/
+/.doit.db
+generated/
+validation-report*.xml
 __pycache__/
 *.pyc
 .pytest_cache/

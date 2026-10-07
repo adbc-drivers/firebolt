@@ -64,9 +64,9 @@ repos:
   - id: rat
     language_version: python3.14  # adbc-drivers-dev requires it
 
-# clang-tidy reads build/compile_commands.json and runs in the builder image,
-# so it needs a prior ./scripts/build.sh. CI's lint job has no build and skips
-# it (SKIP=clang-tidy); the build job runs ./scripts/clang-tidy.sh instead.
+# clang-tidy reads the generated Linux build's compile_commands.json and runs in
+# the public adbc-drivers/dev image. It skips checkout-only pre-commit runs; the
+# generated test workflow invokes it after compilation.
 - repo: local
   hooks:
   - id: clang-tidy

@@ -22,7 +22,6 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include <strings.h>
 
 namespace firebolt::adbc
 {
@@ -55,7 +54,11 @@ std::variant<NotFireboltUri, FireboltUri, Status> parseFireboltUri(const std::st
 try
 {
     const size_t authority_start = std::strlen(kScheme);
-    if (uri.size() < authority_start || strncasecmp(uri.c_str(), kScheme, authority_start) != 0)
+    if (uri.size() < authority_start)
+        return NotFireboltUri{};
+    std::string scheme = uri.substr(0, authority_start);
+    lowerCaseInPlace(scheme);
+    if (scheme != kScheme)
         return NotFireboltUri{};
 
     // Credentials in the URI are OAuth client_credentials in Firebolt's SDK

@@ -29,7 +29,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FIREBOLT_ADBC_BUILD_TESTS "Build unit tests" OFF)
 option(FIREBOLT_ADBC_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc into adbc_driver_firebolt" ON)
 option(FIREBOLT_ADBC_STRIP_DEP_DEBUG "Strip debug info from dependency artifacts" ON)
-option(WITH_SSL "Build curl with SSL support via BoringSSL (what ships)" ON)
+option(WITH_SSL "Build curl with SSL support (what ships)" ON)
 # FB2 SaaS (Legacy) mode: src/fb2/, always built.
 set(_fb2_sources
     src/fb2/Fb2LegacyMode.cpp
@@ -71,10 +71,11 @@ set(_boringssl_crypto_archive "${_boringssl_build}/libcrypto.a")
 
 require_dir("${ADBC_SUBMODULE_DIR}" "ADBC submodule root")
 require_dir("${_curl_src}" "curl source submodule")
-require_dir("${_cares_src}" "c-ares source submodule")
 require_dir("${_nanoarrow_src}" "nanoarrow source submodule")
 require_dir("${_json_include}" "nlohmann/json source submodule")
-if (WITH_SSL)
+set(_use_boringssl OFF)
+if (WITH_SSL AND NOT APPLE AND NOT WIN32)
+    set(_use_boringssl ON)
     require_dir("${_boringssl_src}" "BoringSSL source submodule")
 endif ()
 
@@ -82,9 +83,11 @@ endif ()
 # every dependency added below, so the link can drop what nothing reaches
 # (--gc-sections on adbc_driver_firebolt).  The version script exports two symbols, so
 # most of BoringSSL, curl and libstdc++ is unreachable.  No effect on speed.
-add_compile_options(-ffunction-sections -fdata-sections)
+if (CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-ffunction-sections -fdata-sections)
+endif ()
 
-if (WITH_SSL)
+if (_use_boringssl)
     # Build BoringSSL from source with regular CMake dependency graph wiring.
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Disable BoringSSL shared library build" FORCE)
     set(BUILD_TESTING OFF CACHE BOOL "Disable BoringSSL tests" FORCE)
@@ -144,28 +147,32 @@ if (WITH_SSL)
     endif ()
 endif ()
 
-# Build c-ares from source (static-only, minimal).
-set(CARES_STATIC ON CACHE BOOL "Build c-ares as static library" FORCE)
-set(CARES_SHARED OFF CACHE BOOL "Disable c-ares shared library" FORCE)
-set(CARES_STATIC_PIC ON CACHE BOOL "Build c-ares static library as PIC" FORCE)
-set(CARES_BUILD_TESTS OFF CACHE BOOL "Disable c-ares tests" FORCE)
-set(CARES_BUILD_CONTAINER_TESTS OFF CACHE BOOL "Disable c-ares container tests" FORCE)
-set(CARES_BUILD_TOOLS OFF CACHE BOOL "Disable c-ares tools" FORCE)
-set(CARES_INSTALL OFF CACHE BOOL "Disable c-ares install" FORCE)
-add_subdirectory("${_cares_src}" "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares")
+# Build c-ares from source on Linux. macOS and Windows use curl's threaded
+# resolver, avoiding platform-specific c-ares build and archive assumptions.
+if (NOT APPLE AND NOT WIN32)
+    require_dir("${_cares_src}" "c-ares source submodule")
+    set(CARES_STATIC ON CACHE BOOL "Build c-ares as static library" FORCE)
+    set(CARES_SHARED OFF CACHE BOOL "Disable c-ares shared library" FORCE)
+    set(CARES_STATIC_PIC ON CACHE BOOL "Build c-ares static library as PIC" FORCE)
+    set(CARES_BUILD_TESTS OFF CACHE BOOL "Disable c-ares tests" FORCE)
+    set(CARES_BUILD_CONTAINER_TESTS OFF CACHE BOOL "Disable c-ares container tests" FORCE)
+    set(CARES_BUILD_TOOLS OFF CACHE BOOL "Disable c-ares tools" FORCE)
+    set(CARES_INSTALL OFF CACHE BOOL "Disable c-ares install" FORCE)
+    add_subdirectory("${_cares_src}" "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares")
 
-if (TARGET c-ares::cares_static)
-    set(_cares_target c-ares::cares_static)
-elseif (TARGET c-ares_static)
-    set(_cares_target c-ares_static)
-elseif (TARGET c-ares::cares)
-    set(_cares_target c-ares::cares)
-else ()
-    message(FATAL_ERROR "adbc_driver_firebolt: c-ares static target not found")
-endif ()
-require_static_target(${_cares_target})
-if (FIREBOLT_ADBC_STRIP_DEP_DEBUG AND TARGET c-ares_static)
-    target_compile_options(c-ares_static PRIVATE -g0)
+    if (TARGET c-ares::cares_static)
+        set(_cares_target c-ares::cares_static)
+    elseif (TARGET c-ares_static)
+        set(_cares_target c-ares_static)
+    elseif (TARGET c-ares::cares)
+        set(_cares_target c-ares::cares)
+    else ()
+        message(FATAL_ERROR "adbc_driver_firebolt: c-ares static target not found")
+    endif ()
+    require_static_target(${_cares_target})
+    if (FIREBOLT_ADBC_STRIP_DEP_DEBUG AND TARGET c-ares_static)
+        target_compile_options(c-ares_static PRIVATE -g0)
+    endif ()
 endif ()
 
 # Build curl from source (static-only, minimal HTTP(S) profile).
@@ -176,15 +183,29 @@ set(BUILD_TESTING OFF CACHE BOOL "Disable curl tests" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable curl examples" FORCE)
 set(CURL_BUILD_EVERYTHING OFF CACHE BOOL "Disable optional curl targets" FORCE)
 set(CURL_DISABLE_INSTALL ON CACHE BOOL "Disable curl install" FORCE)
-set(ENABLE_ARES ON CACHE BOOL "Enable c-ares in curl" FORCE)
-set(ENABLE_THREADED_RESOLVER OFF CACHE BOOL "Disable threaded resolver in curl" FORCE)
+if (APPLE OR WIN32)
+    set(ENABLE_ARES OFF CACHE BOOL "Disable c-ares in curl" FORCE)
+    set(ENABLE_THREADED_RESOLVER ON CACHE BOOL "Enable threaded resolver in curl" FORCE)
+else ()
+    set(ENABLE_ARES ON CACHE BOOL "Enable c-ares in curl" FORCE)
+    set(ENABLE_THREADED_RESOLVER OFF CACHE BOOL "Disable threaded resolver in curl" FORCE)
+endif ()
 set(CURL_ENABLE_SSL ${WITH_SSL} CACHE BOOL "Enable SSL support in curl" FORCE)
-set(CURL_USE_OPENSSL ${WITH_SSL} CACHE BOOL "Use BoringSSL via curl OpenSSL backend" FORCE)
-if (WITH_SSL)
+set(CURL_USE_OPENSSL ${_use_boringssl} CACHE BOOL "Use BoringSSL via curl OpenSSL backend" FORCE)
+set(CURL_USE_SECTRANSP OFF CACHE BOOL "Use Apple Secure Transport" FORCE)
+set(CURL_USE_SCHANNEL OFF CACHE BOOL "Use Windows Schannel" FORCE)
+if (WITH_SSL AND APPLE)
+    set(CURL_USE_SECTRANSP ON CACHE BOOL "Use Apple Secure Transport" FORCE)
+elseif (WITH_SSL AND WIN32)
+    set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows Schannel" FORCE)
+elseif (_use_boringssl)
     set(OPENSSL_INCLUDE_DIR "${_boringssl_src}/include" CACHE PATH "BoringSSL include directory" FORCE)
     set(OPENSSL_SSL_LIBRARY "${_ssl_lib_for_link}" CACHE FILEPATH "BoringSSL SSL static library" FORCE)
     set(OPENSSL_CRYPTO_LIBRARY "${_crypto_lib_for_link}" CACHE FILEPATH "BoringSSL crypto static library" FORCE)
-    set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "Use static BoringSSL libraries" FORCE)
+    # The archive paths above already force static BoringSSL. Keep this false so
+    # CMake's FindOpenSSL does not assume OpenSSL's optional zlib dependency;
+    # BoringSSL does not use it, and curl compression is disabled below.
+    set(OPENSSL_USE_STATIC_LIBS FALSE CACHE BOOL "BoringSSL archive paths are explicit" FORCE)
 else ()
     unset(OPENSSL_INCLUDE_DIR CACHE)
     unset(OPENSSL_SSL_LIBRARY CACHE)
@@ -204,6 +225,9 @@ set(CURL_DISABLE_PROXY ON CACHE BOOL "Disable proxy support in curl" FORCE)
 set(CURL_DISABLE_COOKIES ON CACHE BOOL "Disable cookie support in curl" FORCE)
 set(CURL_DISABLE_DOH ON CACHE BOOL "Disable DoH support in curl" FORCE)
 set(CURL_USE_LIBPSL OFF CACHE BOOL "Disable libpsl in curl" FORCE)
+set(CURL_USE_LIBSSH2 OFF CACHE BOOL "Disable libssh2 in curl" FORCE)
+set(CURL_USE_LIBSSH OFF CACHE BOOL "Disable libssh in curl" FORCE)
+set(CURL_USE_GSSAPI OFF CACHE BOOL "Disable GSSAPI in curl" FORCE)
 set(USE_LIBIDN2 OFF CACHE BOOL "Disable libidn2 in curl" FORCE)
 set(CURL_ZLIB OFF CACHE BOOL "Disable zlib support in curl" FORCE)
 set(CURL_BROTLI OFF CACHE BOOL "Disable brotli support in curl" FORCE)
@@ -218,11 +242,13 @@ foreach (_curl_unused
     set(CURL_DISABLE_${_curl_unused} ON CACHE BOOL "Not used by adbc_driver_firebolt" FORCE)
 endforeach ()
 
-# curl's FindCares.cmake consumes these hints when ENABLE_ARES=ON.
-# c-ares generates ares_build.h into its binary dir, while ares.h lives in source include.
-set(CARES_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares;${_cares_src}/include" CACHE STRING "c-ares include dirs for curl" FORCE)
-set(CARES_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares/src/lib/libcares.a" CACHE FILEPATH "c-ares static library for curl" FORCE)
-set(CARES_USE_STATIC_LIBS TRUE CACHE BOOL "Use static c-ares in curl" FORCE)
+if (NOT APPLE AND NOT WIN32)
+    # curl's FindCares.cmake consumes these hints when ENABLE_ARES=ON.
+    # c-ares generates ares_build.h into its binary dir, while ares.h lives in source include.
+    set(CARES_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares;${_cares_src}/include" CACHE STRING "c-ares include dirs for curl" FORCE)
+    set(CARES_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/submodule/c-ares/src/lib/libcares.a" CACHE FILEPATH "c-ares static library for curl" FORCE)
+    set(CARES_USE_STATIC_LIBS TRUE CACHE BOOL "Use static c-ares in curl" FORCE)
+endif ()
 
 add_subdirectory("${_curl_src}" "${CMAKE_CURRENT_BINARY_DIR}/submodule/curl")
 if (TARGET CURL::libcurl_static)
@@ -330,11 +356,11 @@ target_link_libraries(adbc_driver_firebolt PRIVATE
     ${_curl_target}
     ${_nanoarrow_target}
     ${_nanoarrow_ipc_target}
-    m
-    pthread
-    z
 )
-if (WITH_SSL)
+if (UNIX)
+    target_link_libraries(adbc_driver_firebolt PRIVATE m pthread)
+endif ()
+if (_use_boringssl)
     target_link_libraries(adbc_driver_firebolt PRIVATE
         adbc_ssl
         adbc_crypto
@@ -351,6 +377,9 @@ if (UNIX AND NOT APPLE)
         -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/adbc_driver_firebolt.version
         -Wl,--as-needed
         -Wl,--gc-sections
+    )
+    set_property(TARGET adbc_driver_firebolt APPEND PROPERTY
+        LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/adbc_driver_firebolt.version
     )
 
     # lld, when the compiler can use it, also folds identical functions.  Asked of
@@ -370,12 +399,22 @@ if (UNIX AND NOT APPLE)
         COMMAND /usr/bin/env bash -c "readelf -d \"$<TARGET_FILE:adbc_driver_firebolt>\" 2>/dev/null | awk '/\\(NEEDED\\)/ { gsub(/\\[/, \"\", $5); gsub(/\\]/, \"\", $5); print $5 }' || true"
         VERBATIM
     )
+elseif (APPLE)
+    # Mach-O has no GNU version scripts. Keep symbols from statically linked
+    # curl/nanoarrow objects out of the public driver ABI with an allowlist.
+    target_link_options(adbc_driver_firebolt PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/adbc_driver_firebolt.exports"
+    )
+    set_property(TARGET adbc_driver_firebolt APPEND PROPERTY
+        LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/adbc_driver_firebolt.exports
+    )
 endif ()
 
 if (FIREBOLT_ADBC_BUILD_TESTS)
     require_dir("${_gtest_src}" "googletest source submodule")
     set(INSTALL_GTEST OFF CACHE BOOL "Disable gtest install" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "Disable gmock build" FORCE)
+    set(gtest_force_shared_crt ON CACHE BOOL "Use the shared MSVC runtime" FORCE)
     add_subdirectory("${_gtest_src}" "${CMAKE_CURRENT_BINARY_DIR}/submodule/googletest")
 
     if (TARGET GTest::gtest_main)
@@ -421,14 +460,29 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
 
     target_include_directories(adbc_driver_tests SYSTEM PRIVATE ${_json_include})
 
+    target_compile_definitions(adbc_driver_tests PRIVATE
+        FIREBOLT_ADBC_DRIVER_LIBRARY_PATH="$<TARGET_FILE:adbc_driver_firebolt>"
+    )
+
     target_link_libraries(adbc_driver_tests PRIVATE
         ${_gtest_main_target}
         adbc_driver_firebolt
         ${_nanoarrow_target}
         ${_nanoarrow_ipc_target}
         ${_curl_target}
-        m
+        ${CMAKE_DL_LIBS}
     )
+    if (UNIX)
+        target_link_libraries(adbc_driver_tests PRIVATE m)
+    endif ()
+
+    if (WIN32)
+        add_custom_command(TARGET adbc_driver_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:adbc_driver_firebolt>
+                $<TARGET_FILE_DIR:adbc_driver_tests>
+        )
+    endif ()
 
     enable_testing()
     add_test(NAME adbc_driver_tests COMMAND adbc_driver_tests)

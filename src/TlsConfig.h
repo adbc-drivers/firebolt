@@ -32,14 +32,18 @@ namespace firebolt::adbc
 //
 //   1. the firebolt.ssl_certificate_path option, when set;
 //   2. the SSL_CERT_FILE environment variable, the OpenSSL convention;
-//   3. the first readable file among kStandardCaBundlePaths.
+//   3. on Linux, the first readable file among kStandardCaBundlePaths.
+//
+// On macOS and Windows, an empty result after the explicit checks is successful:
+// curl's native TLS backend uses the platform certificate store when
+// CURLOPT_CAINFO is left unset.
 //
 // A source that is configured but unreadable is an error rather than a reason to
 // fall through: the caller asked for that file, and silently trusting another
 // one instead would be surprising.
 struct CaBundleResult
 {
-    std::string path; // the bundle to hand to CURLOPT_CAINFO; empty on failure
+    std::string path; // the bundle for CURLOPT_CAINFO; empty on failure or for a native store
     // Why no bundle was found: INVALID_ARGUMENT when an explicit option or
     // environment variable names an unreadable file, INVALID_STATE when the
     // host simply has none.

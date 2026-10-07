@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 RUNNER_IMAGE = "firebolt-adbc-integration-test-runner:latest"
 # Firebolt engine image: the unified `firebolt` binary (server + client). Its entrypoint
 # execs `firebolt <args>` with a default command of `server --data-dir /var/lib/firebolt`.
-DEFAULT_ENGINE_IMAGE = "ghcr.io/firebolt-db/engine:latest"
+DEFAULT_ENGINE_IMAGE = (
+    "ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8"
+)
 
 CUR_DIR = p.dirname(p.realpath(__file__))  # adbc/tests/integration
 DOCKERFILE_DIR = p.join(CUR_DIR, "docker")  # adbc/tests/integration/docker
@@ -98,10 +100,10 @@ def _ensure_runner_image(image: str):
 def _ensure_image(image: str):
     """Pull `image`, falling back to a locally cached copy when the pull fails.
 
-    The default engine image is a floating tag (`:latest`), so a cached copy can be
-    arbitrarily stale — the pull is always attempted first. Offline or unauthenticated
-    runs still work as long as a local copy exists: the runner shares the host docker
-    socket, so an image pulled on the host is visible to docker compose inside it.
+    The pull is always attempted first so the requested tag is available. Offline or
+    unauthenticated runs still work as long as a local copy exists: the runner shares
+    the host docker socket, so an image pulled on the host is visible to docker compose
+    inside it.
     """
     pull = subprocess.run(
         ["docker", "pull", image],
@@ -181,8 +183,8 @@ def _launch_runner(
     if not p.isfile(adbc_so):
         raise SystemExit(
             f"libadbc_driver_firebolt.so not found at {adbc_so}. Build it first:\n"
-            "  cmake --preset standalone-clang -S .\n"
-            "  cmake --build build -j$(nproc)\n"
+            "  pixi run adbc-make build DEBUG=true TOOLCHAIN=cpp "
+            "MANYLINUX=manylinux_2_28\n"
             "or pass --adbc-binary=<path>."
         )
 

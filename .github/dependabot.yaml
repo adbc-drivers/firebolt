@@ -12,12 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Version updates only cover the manifests Dependabot can bump safely. The C++
-# dependencies under submodule/ are pinned to release tags, and Dependabot's
-# gitsubmodule ecosystem would move them to the tip of each default branch, so
-# they are updated by hand. The builder image's Ubuntu 22.04 base is pinned for
-# glibc portability and is left alone for the same reason.
-
 version: 2
 updates:
   - package-ecosystem: "github-actions"

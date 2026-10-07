@@ -16,6 +16,7 @@
 #include "ArrowIpcStream.h"
 #include "HttpClient.h"
 #include "IngestSqlBuilder.h"
+#include "StringUtils.h"
 #include "Version.h" // generated from src/Version.h.in
 
 #include <nanoarrow/nanoarrow.hpp>
@@ -38,7 +39,7 @@ static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::st
 {
     if (e)
     {
-        e->message = strdup(msg.c_str());
+        e->message = duplicateString(msg);
         e->release = [](AdbcError * err) {
             free(err->message);
             err->message = nullptr;

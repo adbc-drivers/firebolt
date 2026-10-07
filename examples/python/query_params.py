@@ -21,7 +21,7 @@ containing quotes or SQL keywords is data.
 
     python examples/python/query_params.py
 
-Configure with FIREBOLT_ADBC_DRIVER / FIREBOLT_URI — see examples/python/README.md.
+Configure with FIREBOLT_URI — see examples/python/README.md.
 """
 
 import argparse
@@ -31,26 +31,17 @@ import os
 
 from adbc_driver_manager import dbapi
 
-DEFAULT_DRIVER = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "build",
-    "libadbc_driver_firebolt.so",
-)
-
 TABLE = "adbc_example_params"
 
 
-def connection_settings() -> tuple[str, dict]:
-    """Driver path plus the database options, read from the environment."""
-    driver = os.environ.get("FIREBOLT_ADBC_DRIVER", DEFAULT_DRIVER)
+def connection_settings() -> dict:
+    """Database options read from the environment."""
     db_kwargs = {"uri": os.environ.get("FIREBOLT_URI", "http://localhost:3473")}
     if os.environ.get("FIREBOLT_DATABASE"):
         db_kwargs["firebolt.database"] = os.environ["FIREBOLT_DATABASE"]
     if os.environ.get("FIREBOLT_TOKEN"):
         db_kwargs["firebolt.token"] = os.environ["FIREBOLT_TOKEN"]
-    return driver, db_kwargs
+    return db_kwargs
 
 
 def positional(cur) -> None:
@@ -146,11 +137,11 @@ def parameter_schema(cur) -> None:
 def main() -> None:
     argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
 
-    driver, db_kwargs = connection_settings()
-    print(f"driver: {driver}\nuri:    {db_kwargs['uri']}\n")
+    db_kwargs = connection_settings()
+    print(f"driver: firebolt\nuri:    {db_kwargs['uri']}\n")
 
     with (
-        dbapi.connect(driver=driver, db_kwargs=db_kwargs, autocommit=True) as conn,
+        dbapi.connect(driver="firebolt", db_kwargs=db_kwargs, autocommit=True) as conn,
         conn.cursor() as cur,
     ):
         cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
