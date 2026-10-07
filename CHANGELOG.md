@@ -44,6 +44,14 @@ All notable changes to this project are documented here. The format follows
   `firebolt.database` wins) and `ssl_mode` picks the transport — `verify-full`, the
   default, or `disable` for plaintext.
 
+- **FB2 only: Firebolt 2.0 SaaS.** Engines on version 5 or later in a 2.0 account are
+  reachable with a service account (`username`/`password`, or
+  `firebolt.client_id`/`client_secret`) plus `firebolt.account` and
+  `firebolt.engine`. The driver exchanges the credentials for a token, resolves the
+  engine through the 2.0 control plane, caches both in memory, re-authenticates once on
+  a `401`, and follows a mid-session `USE ENGINE`. See
+  [docs/fb2-saas.md](docs/fb2-saas.md).
+
 ### Changed
 
 - **Smaller binary.** Unused code in the statically linked dependencies is now dropped

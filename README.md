@@ -459,6 +459,10 @@ The generated Linux CI job runs it against Firebolt 5.0.0.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Building, testing, and submitting changes |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
+## Other environments
+
+FB2 only: engines (v5+) in a Firebolt 2.0 SaaS account — see [docs/fb2-saas.md](docs/fb2-saas.md).
+
 ## License
 
 Apache 2.0 — see [LICENSE.txt](LICENSE.txt) and [NOTICE.txt](NOTICE.txt). Release

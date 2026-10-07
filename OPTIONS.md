@@ -312,7 +312,7 @@ Two nullability rules, both forced by Firebolt:
 
 | Level | Unknown key behaviour |
 |-------|----------------------|
-| Database | `firebolt.*` → `ADBC_STATUS_NOT_FOUND`; other unsupported keys → `ADBC_STATUS_NOT_IMPLEMENTED`. |
+| Database | `firebolt.*` → `ADBC_STATUS_NOT_FOUND`; other unsupported keys → `ADBC_STATUS_NOT_IMPLEMENTED`. `username` and `password` are [FB2 only](#fb2-only-options) credentials. |
 | Connection | `ADBC_STATUS_NOT_IMPLEMENTED`; use `firebolt.session.<name>` for server session parameters. |
 | Statement | `ADBC_STATUS_NOT_IMPLEMENTED`. |
 
@@ -354,3 +354,22 @@ today's names are stable and which are already superseded.
 When the migration lands, the current names are replaced rather than aliased.
 Nothing outside this repository consumes them yet, and carrying two spellings
 forever is worse than one rename before the first public release.
+
+---
+
+## FB2 only options
+
+These apply only to engines in a **Firebolt 2.0 SaaS** account, and are documented
+in full in [docs/fb2-saas.md](docs/fb2-saas.md). Setting `firebolt.account`
+selects that mode; `uri` must then be left out.
+
+| Key | Meaning |
+|-----|---------|
+| `username` / `firebolt.client_id` | Service account ID |
+| `password` / `firebolt.client_secret` | Service account secret |
+| `firebolt.account` | Account name (required) |
+| `firebolt.engine` | Engine name (required) |
+| `firebolt.cache_connection` | `true` (default) or `false`: the in-process token and engine-URL cache |
+
+`firebolt.database`, `firebolt.token`, `firebolt.timeout_sec` and
+`firebolt.ssl_certificate_path` keep their meaning above.
