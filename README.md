@@ -412,7 +412,7 @@ today's names to the canonical ones is in
 | `... is https:// but this driver was built without TLS support` | A self-built driver configured with `-DWITH_SSL=OFF`. Released builds have TLS; rebuild with the default `WITH_SSL=ON`. |
 | `No CA certificate bundle found for https://` | The host has no system CA certificates (common in minimal containers). Install them (`ca-certificates` on Debian/Ubuntu/RHEL), or set `firebolt.ssl_certificate_path` to a PEM bundle. |
 | `IO: curl error: SSL peer certificate or SSH remote key was not OK` | The server's certificate does not chain to a trusted CA, or its name does not match the `uri` host. For a private CA, point `firebolt.ssl_certificate_path` at its PEM file. |
-| `IO: curl error: Couldn't connect to server` | Nothing is listening. Check the container is up and the port matches: `curl -fsS http://localhost:3473/ping`. |
+| `IO: curl error: Could not connect to server` | Nothing is listening. Check the container is up and the port matches: `curl -fsS http://localhost:3473/ping`. |
 | `Cluster not yet healthy` | The engine answers `/ping` before it can serve queries. Retry `SELECT 1` for a few seconds. |
 | `UNAUTHORIZED: HTTP 401` / `403` | The engine wants authentication. Supply `firebolt.token`; see [docs/authentication.md](docs/authentication.md). |
 | `Query referenced positional parameter $1, but it was not set` | The statement has more `$N` placeholders than you passed values for. Note `$1` is 1-based. |

@@ -30,7 +30,7 @@ def test_package() -> None:
         conn.cursor() as cursor,
         pytest.raises(
             adbc_driver_manager.dbapi.Error,
-            match=r"curl error: Couldn't connect to server",
+            match=r"curl error: Could not connect to server",
         ),
     ):
         cursor.execute("SELECT 1")

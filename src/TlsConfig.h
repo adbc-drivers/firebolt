@@ -35,8 +35,8 @@ namespace firebolt::adbc
 //   3. on Linux, the first readable file among kStandardCaBundlePaths.
 //
 // On macOS and Windows, an empty result after the explicit checks is successful:
-// curl's native TLS backend uses the platform certificate store when
-// CURLOPT_CAINFO is left unset.
+// with CURLOPT_CAINFO left unset, curl verifies against the platform certificate
+// store (Apple SecTrust over BoringSSL on macOS, Schannel on Windows).
 //
 // A source that is configured but unreadable is an error rather than a reason to
 // fall through: the caller asked for that file, and silently trusting another
