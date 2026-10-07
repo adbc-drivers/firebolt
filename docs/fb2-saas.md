@@ -81,7 +81,7 @@ is opened.
 credential may be set under one of its two names, not both.
 
 System settings are connection options, as for any engine: for example,
-`time_zone=UTC` set on the connection travels with every request.
+`firebolt.session.time_zone=UTC` set on the connection travels with every request.
 
 ## How it connects
 
