@@ -237,7 +237,7 @@ Driver-level capabilities the shared table does not cover.
 | | Firebolt |
 |---|----------|
 | Result streaming as Arrow record batches | ✅ |
-| Session parameter passthrough, server-driven session updates | ✅ |
+| `firebolt.session.*` parameter passthrough, server-driven session updates | ✅ |
 | Per-connection bearer token | ✅ |
 | Query parameter binding (`execute(sql, params)`) | ✅ `$1`, `$2`, … <sup>[4](#fn4)</sup> |
 | Named parameter binding (`execute(sql, {...})`) | ✅ via `param('name')` <sup>[17](#fn17)</sup> |
@@ -304,7 +304,7 @@ anything else is rendered as text and cast, or cannot be sent.
 | `list<T>`, `large_list<T>` | `ARRAY(T)` | ✅ | ❌ <sup>[4](#fn4)</sup> |
 | `fixed_size_list<T>` | `ARRAY(T)` | ❌ <sup>[14](#fn14)</sup> | ❌ <sup>[4](#fn4)</sup> |
 | `struct<…>` | `STRUCT(…)` | ✅ <sup>[3](#fn3)</sup> | ❌ <sup>[4](#fn4)</sup> |
-| `dictionary` | (no mapping) | ❌ <sup>[15](#fn15)</sup> | ❌ <sup>[4](#fn4)</sup> |
+| `dictionary<T>` | (value type) | ❌ <sup>[15](#fn15)</sup> | ✅ decoded as `T` |
 | `map` | (no mapping) | ❌ <sup>[16](#fn16)</sup> | ❌ <sup>[4](#fn4)</sup> |
 | `null`, `duration`, `interval` | (no mapping) | ❌ <sup>[16](#fn16)</sup> | ❌ <sup>[4](#fn4)</sup> |
 
@@ -342,9 +342,9 @@ type, including the types marked ❌ above.
    [OPTIONS.md](OPTIONS.md#parameter-metadata).
 6. <a id="fn6"></a>The server does not report affected rows over this interface.
    Use `SELECT count(*)` when you need a number.
-7. <a id="fn7"></a>`GetOption*`, `SetOptionInt`/`Double`/`Bytes`, `Cancel`,
-   `ExecuteSchema`, `GetStatistics`, `ErrorGetDetail`. The driver implements the
-   ADBC 1.0.0 function set, although `GetInfo` reports ADBC 1.1.0.
+7. <a id="fn7"></a>Typed option setters, `Cancel`, `ExecuteSchema`,
+   `GetStatistics`, and `ErrorGetDetail`. The driver implements the ADBC 1.0.0
+   function set, although `GetInfo` reports ADBC 1.1.0.
 8. <a id="fn8"></a>Raw WKB bytes, with no `geoarrow` extension metadata — unlike
    some other drivers, which surface `extension<geoarrow.wkt>`.
 9. <a id="fn9"></a>`BIGINT` is signed, so a value above `int64` max
@@ -420,7 +420,6 @@ today's names to the canonical ones is in
 | `INVALID_ARGUMENT: Parameter value … exceeds the BIGINT range` | A `uint64` above `int64` max; Firebolt parameters are signed. |
 | `INVALID_ARGUMENT: Parameter value is not finite` | `NaN` or an infinity was bound. Neither has a JSON or SQL literal. |
 | `INVALID_ARGUMENT: Parameter value … is not a valid time of day` | A negative `time32`/`time64` value. |
-| `execute()` with several parameter sets returns only one result set | Expected: the statement runs once per bound row, and the returned result is the last execution's. Use `executemany()` when you do not want a result. |
 | A parameter compares as text against a typed column | Add an explicit cast: `$1::DATE`, `param('n')::INT` <sup>[19](#fn19)</sup>. |
 | `NOT_FOUND: Unknown Firebolt database option '…'` | A misspelled `firebolt.*` key. Compare against [OPTIONS.md](OPTIONS.md). |
 | `NOT_IMPLEMENTED: Temporary ingest tables are not supported` | `adbc_ingest(..., temporary=True)`. Firebolt has no session-temporary tables. |
@@ -448,7 +447,7 @@ and newer. Details and the dependency policy are in [CONTRIBUTING.md](CONTRIBUTI
 and [AGENTS.md](AGENTS.md).
 The shared ADBC driver validation suite can run locally against the Firebolt
 engine defined in `compose.yaml`; see [validation/README.md](validation/README.md).
-Its generated CI job is currently disabled while conformance gaps are triaged.
+The generated Linux CI job runs it against Firebolt 5.0.0.
 
 ## Documentation
 

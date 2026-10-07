@@ -23,6 +23,98 @@
 namespace firebolt::adbc
 {
 
+namespace
+{
+
+    bool nullableStringsEqual(const char * left, const char * right)
+    {
+        if (!left || !right)
+            return left == right;
+        return strcmp(left, right) == 0;
+    }
+
+    bool metadataEqual(const char * left, const char * right)
+    {
+        if (!left || !right)
+            return left == right;
+        const int64_t left_size = ArrowMetadataSizeOf(left);
+        const int64_t right_size = ArrowMetadataSizeOf(right);
+        return left_size == right_size && memcmp(left, right, static_cast<size_t>(left_size)) == 0;
+    }
+
+    bool schemasEqual(const ArrowSchema * left, const ArrowSchema * right)
+    {
+        if (!left || !right || !nullableStringsEqual(left->format, right->format) || !nullableStringsEqual(left->name, right->name)
+            || !metadataEqual(left->metadata, right->metadata) || left->flags != right->flags || left->n_children != right->n_children
+            || (left->dictionary == nullptr) != (right->dictionary == nullptr))
+            return false;
+
+        for (int64_t i = 0; i < left->n_children; ++i)
+            if (!schemasEqual(left->children[i], right->children[i]))
+                return false;
+        return !left->dictionary || schemasEqual(left->dictionary, right->dictionary);
+    }
+
+    struct ConcatenatedStreamState
+    {
+        ArrowSchema schema{};
+        std::vector<ArrowArrayStream> streams;
+        size_t current_stream = 0;
+        std::string last_error;
+
+        ~ConcatenatedStreamState()
+        {
+            if (schema.release)
+                schema.release(&schema);
+            for (auto & stream : streams)
+                if (stream.release)
+                    stream.release(&stream);
+        }
+    };
+
+    int concatenatedGetSchema(ArrowArrayStream * stream, ArrowSchema * out)
+    {
+        auto * state = static_cast<ConcatenatedStreamState *>(stream->private_data);
+        return ArrowSchemaDeepCopy(&state->schema, out);
+    }
+
+    int concatenatedGetNext(ArrowArrayStream * stream, ArrowArray * out)
+    {
+        auto * state = static_cast<ConcatenatedStreamState *>(stream->private_data);
+        while (state->current_stream < state->streams.size())
+        {
+            ArrowArrayStream & current = state->streams[state->current_stream];
+            const int result = current.get_next(&current, out);
+            if (result != 0)
+            {
+                const char * child_error = current.get_last_error ? current.get_last_error(&current) : nullptr;
+                state->last_error = child_error ? child_error : "Failed to read a parameter result stream";
+                return result;
+            }
+            if (out->release)
+                return 0;
+            ++state->current_stream;
+        }
+        out->release = nullptr;
+        return 0;
+    }
+
+    const char * concatenatedGetLastError(ArrowArrayStream * stream)
+    {
+        auto * state = static_cast<ConcatenatedStreamState *>(stream->private_data);
+        return state->last_error.empty() ? nullptr : state->last_error.c_str();
+    }
+
+    void concatenatedRelease(ArrowArrayStream * stream)
+    {
+        if (!stream || !stream->private_data)
+            return;
+        delete static_cast<ConcatenatedStreamState *>(stream->private_data);
+        memset(stream, 0, sizeof(*stream));
+    }
+
+} // namespace
+
 // Empty-stream helpers: a trivial stream that immediately signals end-of-stream
 // with a zero-column schema.
 struct EmptyStreamState
@@ -109,6 +201,40 @@ std::string ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArr
         return "ArrowIpcArrayStreamReaderInit failed";
     }
 
+    return {};
+}
+
+std::string ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ipc_responses, ArrowArrayStream * out)
+{
+    if (ipc_responses.empty())
+        return ExportIpcBytesAsArrowStream({}, out);
+
+    auto state = std::make_unique<ConcatenatedStreamState>();
+    state->streams.resize(ipc_responses.size());
+    for (size_t i = 0; i < ipc_responses.size(); ++i)
+    {
+        std::string error = ExportIpcBytesAsArrowStream(std::move(ipc_responses[i]), &state->streams[i]);
+        if (!error.empty())
+            return error;
+
+        nanoarrow::UniqueSchema response_schema;
+        if (state->streams[i].get_schema(&state->streams[i], response_schema.get()) != 0)
+            return "Failed to read a parameter result schema";
+        if (i == 0)
+        {
+            ArrowSchemaMove(response_schema.get(), &state->schema);
+        }
+        else if (!schemasEqual(&state->schema, response_schema.get()))
+        {
+            return "Parameter executions returned incompatible schemas";
+        }
+    }
+
+    out->get_schema = concatenatedGetSchema;
+    out->get_next = concatenatedGetNext;
+    out->get_last_error = concatenatedGetLastError;
+    out->release = concatenatedRelease;
+    out->private_data = state.release();
     return {};
 }
 

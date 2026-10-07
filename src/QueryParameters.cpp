@@ -297,8 +297,43 @@ namespace
                 return unsupported(out_error, "struct");
             case NANOARROW_TYPE_MAP:
                 return unsupported(out_error, "map");
-            case NANOARROW_TYPE_DICTIONARY:
-                return unsupported(out_error, "dictionary");
+            case NANOARROW_TYPE_DICTIONARY: {
+                if (!field->dictionary || !view->dictionary)
+                {
+                    out_error = "Bound dictionary parameter is missing its dictionary values";
+                    return ADBC_STATUS_INVALID_ARGUMENT;
+                }
+
+                int64_t dictionary_index = -1;
+                switch (schema_view.storage_type)
+                {
+                    case NANOARROW_TYPE_INT8:
+                    case NANOARROW_TYPE_INT16:
+                    case NANOARROW_TYPE_INT32:
+                    case NANOARROW_TYPE_INT64:
+                        dictionary_index = ArrowArrayViewGetIntUnsafe(view, row);
+                        break;
+                    case NANOARROW_TYPE_UINT8:
+                    case NANOARROW_TYPE_UINT16:
+                    case NANOARROW_TYPE_UINT32:
+                    case NANOARROW_TYPE_UINT64: {
+                        const uint64_t unsigned_index = ArrowArrayViewGetUIntUnsafe(view, row);
+                        if (unsigned_index <= static_cast<uint64_t>(INT64_MAX))
+                            dictionary_index = static_cast<int64_t>(unsigned_index);
+                        break;
+                    }
+                    default:
+                        out_error = "Bound dictionary parameter has a non-integer index type";
+                        return ADBC_STATUS_INVALID_ARGUMENT;
+                }
+
+                if (dictionary_index < 0 || dictionary_index >= view->dictionary->length)
+                {
+                    out_error = "Bound dictionary parameter index is outside the dictionary";
+                    return ADBC_STATUS_INVALID_ARGUMENT;
+                }
+                return arrowValueToJson(out, field->dictionary, view->dictionary, dictionary_index, out_error);
+            }
             default:
                 return unsupported(out_error, ArrowTypeString(schema_view.type));
         }

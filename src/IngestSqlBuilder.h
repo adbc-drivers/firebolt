@@ -36,8 +36,8 @@ std::string qualifiedTable(const std::string & catalog, const std::string & db_s
 // Build the `SELECT * FROM <qualified> LIMIT 0` probe SQL that
 // ConnectionGetTableSchema sends to the server.  Identifier quoting must
 // double any embedded `"` so caller-supplied names cannot break out of the
-// identifier and inject SQL.  `db_schema` may be empty.
-std::string buildTableSchemaSql(const std::string & db_schema, const std::string & table_name);
+// identifier and inject SQL.  `catalog` and `db_schema` may be empty.
+std::string buildTableSchemaSql(const std::string & catalog, const std::string & db_schema, const std::string & table_name);
 
 // Map a single Arrow column schema to a Firebolt SQL type name.  Returns "" if
 // the input cannot be represented as a Firebolt SQL type.

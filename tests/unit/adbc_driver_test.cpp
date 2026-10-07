@@ -340,17 +340,11 @@ TEST(DatabaseOptionTest, EndpointAndCaBundleRefusedAfterInit)
     driver.DatabaseRelease(&db, nullptr);
 }
 
-TEST(DatabaseOptionTest, NonNamespacedOptionStillAccepted)
+TEST(DatabaseOptionTest, UnknownNonNamespacedOptionRejected)
 {
-    // Keys outside the firebolt.* namespace are set by the driver manager
-    // itself and by callers passing future connection parameters; they must
-    // keep being accepted so that rejecting typos does not break them.
-    // (`username`/`password` are not among them: they are FB2 SaaS (Legacy) mode
-    // credentials, which select that mode.)
     AdbcDriver driver = InitDriver();
     AdbcError error = ADBC_ERROR_INIT;
-    EXPECT_EQ(InitWithOption(driver, "max_retries", "3", &error), ADBC_STATUS_OK);
-    EXPECT_EQ(InitWithOption(driver, "adbc.connection.catalog", "warehouse", &error), ADBC_STATUS_OK);
+    EXPECT_EQ(InitWithOption(driver, "max_retries", "3", &error), ADBC_STATUS_NOT_IMPLEMENTED);
     if (error.release)
         error.release(&error);
 }
@@ -800,6 +794,31 @@ TEST(ConnectionTest, TokenNotStoredInSessionParams)
         error.release(&error);
 }
 
+TEST(ConnectionTest, SessionOptionRequiresNamespaceAndStripsIt)
+{
+    AdbcDriver driver = InitDriver();
+    AdbcDatabase db{};
+    SetupDatabase(driver, db);
+
+    AdbcConnection conn{};
+    AdbcError error = ADBC_ERROR_INIT;
+    driver.ConnectionNew(&conn, &error);
+    driver.ConnectionInit(&conn, &db, &error);
+
+    ASSERT_EQ(driver.ConnectionSetOption(&conn, "firebolt.session.query_parameters", "[]", &error), ADBC_STATUS_OK);
+    auto * fc = static_cast<firebolt::adbc::FireboltConnection *>(conn.private_data);
+    ASSERT_NE(fc, nullptr);
+    EXPECT_EQ(fc->session_params.at("query_parameters"), "[]");
+    EXPECT_EQ(fc->session_params.count("firebolt.session.query_parameters"), 0u);
+
+    EXPECT_EQ(driver.ConnectionSetOption(&conn, "query_parameters", "[]", &error), ADBC_STATUS_NOT_IMPLEMENTED);
+    if (error.release)
+        error.release(&error);
+
+    driver.ConnectionRelease(&conn, nullptr);
+    driver.DatabaseRelease(&db, nullptr);
+}
+
 // ============================================================
 // Tests: statement lifecycle
 // ============================================================
@@ -981,24 +1000,30 @@ TEST(IngestSqlBuilderTest, QualifiedTableFullyQualified)
 
 TEST(GetTableSchemaSqlTest, NoSchemaProducesSinglePart)
 {
-    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "users"), "SELECT * FROM \"users\" LIMIT 0");
+    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "", "users"), "SELECT * FROM \"users\" LIMIT 0");
 }
 
 TEST(GetTableSchemaSqlTest, WithSchemaProducesTwoPart)
 {
-    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("public", "users"), "SELECT * FROM \"public\".\"users\" LIMIT 0");
+    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "public", "users"), "SELECT * FROM \"public\".\"users\" LIMIT 0");
+}
+
+TEST(GetTableSchemaSqlTest, WithCatalogProducesThreePart)
+{
+    EXPECT_EQ(
+        firebolt::adbc::buildTableSchemaSql("warehouse", "public", "users"), "SELECT * FROM \"warehouse\".\"public\".\"users\" LIMIT 0");
 }
 
 TEST(GetTableSchemaSqlTest, QuotesEmbeddedDoubleQuoteInTable)
 {
     // Adversarial table name that would otherwise close the identifier and
     // inject SQL.  Embedded `"` must be doubled.
-    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "users\"x"), "SELECT * FROM \"users\"\"x\" LIMIT 0");
+    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "", "users\"x"), "SELECT * FROM \"users\"\"x\" LIMIT 0");
 }
 
 TEST(GetTableSchemaSqlTest, QuotesEmbeddedDoubleQuoteInSchema)
 {
-    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("pu\"blic", "users"), "SELECT * FROM \"pu\"\"blic\".\"users\" LIMIT 0");
+    EXPECT_EQ(firebolt::adbc::buildTableSchemaSql("", "pu\"blic", "users"), "SELECT * FROM \"pu\"\"blic\".\"users\" LIMIT 0");
 }
 
 TEST(GetTableSchemaSqlTest, RejectsSqlInjectionAttempt)
@@ -1006,7 +1031,7 @@ TEST(GetTableSchemaSqlTest, RejectsSqlInjectionAttempt)
     // Classic SQLi payload: close the identifier, inject DDL, comment out the rest.
     // After fix the payload is safely contained inside one quoted identifier.
     const std::string payload = "x\"; DROP TABLE secrets; --";
-    std::string sql = firebolt::adbc::buildTableSchemaSql("", payload);
+    std::string sql = firebolt::adbc::buildTableSchemaSql("", "", payload);
     // Embedded `"` is doubled, so the only `"` characters surround the identifier
     // exactly twice (once at start, once at end of the doubled-up identifier).
     EXPECT_EQ(sql, "SELECT * FROM \"x\"\"; DROP TABLE secrets; --\" LIMIT 0");

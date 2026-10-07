@@ -99,12 +99,11 @@ Set on `AdbcConnection`, before or after `AdbcConnectionInit`.
 |-----|---------|---------|
 | `adbc.connection.autocommit` | `true` | `false` starts explicit transactions: the driver issues `BEGIN` lazily before the first statement, and you then drive `AdbcConnectionCommit` / `AdbcConnectionRollback`. Setting it back to `true` while a transaction is open commits that transaction first. The value must be exactly `"true"` or `"false"`; anything else results in `ADBC_STATUS_INVALID_ARGUMENT` error. |
 | `firebolt.token` | inherited from the database | Per-connection bearer token. Two connections sharing one `AdbcDatabase` keep independent identities; setting it here never mutates the database default or the other connection. It is deliberately kept out of the session parameters below, because those are URL-encoded into every request line and would put the token in proxy and server access logs. May be set between `New` and `Init` — `Init` will not overwrite it. |
-| *any other key* | — | Stored as a **session parameter** and appended to the query URL of every subsequent request as `<key>=<value>` (URL-encoded). This is how you pass Firebolt query settings through. |
+| `firebolt.session.<name>` | — | Stores `<name>` as a **session parameter** and appends it to every subsequent query URL as `<name>=<value>` (URL-encoded). This is how you pass Firebolt query settings through. |
 
-Since unknown connection keys become session parameters, a typo here does not
-raise — it is sent to the server, which may reject it or ignore it. This differs
-on purpose from database options, where an unrecognised `firebolt.*` key is
-an error.
+Other connection keys return `ADBC_STATUS_NOT_IMPLEMENTED`. Requiring the
+`firebolt.session.` namespace prevents a misspelled driver option from being
+silently forwarded to the server.
 
 ### Server-driven session state
 
@@ -155,11 +154,12 @@ body: SELECT $1 + 1
 
 Each bound row is one parameter set and one execution, for `ExecuteQuery` as much as
 for `ExecuteUpdate` (what `executemany` calls), stopping at the first failure. A
-result-returning execution hands back the last row's result set, there being one
-stream to return. `rows_affected` stays `-1`; the server does not report it here.
+result-returning execution concatenates the record batches from every parameter set
+into one stream, in bound-row order. `rows_affected` stays `-1`; the server does not
+report it here.
 
-Setting `query_parameters` as a *connection* option still works, but a bound
-parameter set overrides it for that request rather than replacing it.
+Setting `firebolt.session.query_parameters` as a connection option still works,
+but a bound parameter set overrides it for that request rather than replacing it.
 
 ### Parameter types
 
@@ -178,7 +178,8 @@ type field of its own.
 | `timestamp` | `"YYYY-MM-DD HH:MM:SS[.ffffff]"`, `+00` when zoned | `TEXT`, coerced |
 | `time32`, `time64` | `"HH:MM:SS[.ffffff]"` | `TEXT`, coerced |
 | `decimal32/64/128/256` | exact digit string, never a JSON number | `TEXT`, coerced |
-| `binary`, `list`, `struct`, `map`, `dictionary`, `interval`, `duration` | — | `ADBC_STATUS_NOT_IMPLEMENTED`, naming the type |
+| `dictionary<T>` | decoded value | Follows the underlying value type `T` |
+| `binary`, `list`, `struct`, `map`, `interval`, `duration` | — | `ADBC_STATUS_NOT_IMPLEMENTED`, naming the type |
 
 Whole floats keep a `.0` so they stay `DOUBLE`, and doubles print at the shortest
 precision that round-trips. A decimal goes as a string because a JSON number is read
@@ -311,9 +312,9 @@ Two nullability rules, both forced by Firebolt:
 
 | Level | Unknown key behaviour |
 |-------|----------------------|
-| Database | `firebolt.*` → `ADBC_STATUS_NOT_FOUND`. Any other key is accepted and ignored, because the driver manager sets some itself and callers pass parameters this driver does not consume yet. |
-| Connection | Accepted, and forwarded to the server as a session parameter. |
-| Statement | Accepted and ignored. |
+| Database | `firebolt.*` → `ADBC_STATUS_NOT_FOUND`; other unsupported keys → `ADBC_STATUS_NOT_IMPLEMENTED`. |
+| Connection | `ADBC_STATUS_NOT_IMPLEMENTED`; use `firebolt.session.<name>` for server session parameters. |
+| Statement | `ADBC_STATUS_NOT_IMPLEMENTED`. |
 
 ---
 

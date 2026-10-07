@@ -60,8 +60,7 @@ idempotent and can be run from anywhere in the repository.
 The validation suite uses the native artifact from `pixi run make`; the Firebolt
 engine itself runs in Docker. See [validation/README.md](validation/README.md) for
 the direct Compose and Pixi commands and details about selecting another engine
-image. Its generated CI job is currently disabled while conformance gaps are
-triaged.
+image. The generated Linux CI job runs the suite against Firebolt 5.0.0.
 
 Linux release builds use the shared `adbc-drivers/dev` manylinux_2_28 C++ image.
 This gives release binaries a glibc 2.28 compatibility baseline without
@@ -198,6 +197,6 @@ make specific claims, and a stale claim is worse than no claim:
 
 ## Pull requests
 
-`script_test.yaml` runs the generated build, unit, and packaging jobs on every
-pull request. The existing Firebolt-specific integration suite can be run
-locally; shared validation remains disabled in CI.
+`script_test.yaml` runs the generated build, unit, validation, and packaging
+jobs on every pull request. The existing Firebolt-specific integration suite
+can be run locally.

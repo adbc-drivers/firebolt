@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import functools
+import re
 from pathlib import Path
 
 from adbc_drivers_validation import model, quirks
@@ -23,8 +24,7 @@ class FireboltQuirks(model.DriverQuirks):
     driver = "adbc_driver_firebolt"
     driver_name = "ADBC Driver for Firebolt"
     vendor_name = "Firebolt"
-    # The driver does not report ADBC_INFO_VENDOR_VERSION.
-    vendor_version = ""
+    vendor_version = re.compile(r"^5\.0\.0(?:-.*)?$")
     short_version = "5.0.0"
     features = model.DriverFeatures(
         connection_get_table_schema=True,

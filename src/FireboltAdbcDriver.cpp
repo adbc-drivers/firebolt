@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -76,6 +77,21 @@ static AdbcStatusCode HttpRespToStatus(const HttpResponse & resp, AdbcError * er
     if (resp.http_code >= 500)
         return SetError(error, ADBC_STATUS_IO, "HTTP " + std::to_string(resp.http_code) + ": " + resp.error_message);
     return ADBC_STATUS_OK;
+}
+
+static AdbcStatusCode ReadSingleStringPayload(std::vector<uint8_t> body, const std::string & context, std::string & out, AdbcError * error);
+
+static AdbcStatusCode IngestHttpRespToStatus(const HttpResponse & resp, IngestMode mode, AdbcError * error)
+{
+    const bool appending = mode == IngestMode::Append || mode == IngestMode::CreateAppend;
+    const bool column_missing_from_target = resp.error_message.find("does not exist in the target INSERT table") != std::string::npos;
+    const bool create_target_exists = mode == IngestMode::Create && resp.error_message.find("already exists") != std::string::npos;
+    const bool already_exists = (appending && column_missing_from_target) || create_target_exists;
+    if (resp.curl_code == CURLE_OK && resp.http_code >= 400 && resp.http_code < 500 && already_exists)
+    {
+        return SetError(error, ADBC_STATUS_ALREADY_EXISTS, "HTTP " + std::to_string(resp.http_code) + ": " + resp.error_message);
+    }
+    return HttpRespToStatus(resp, error);
 }
 
 // Case-insensitive check that `url` begins with `scheme` (URI schemes are
@@ -126,11 +142,19 @@ static void ApplySessionUpdates(FireboltConnection * conn, const HttpResponse & 
 static constexpr const char * QUERY_PARAMETERS_SETTING = "query_parameters";
 static constexpr const char * EXECUTION_MODE_SETTING = "execution_mode";
 static constexpr const char * DESCRIBE_PARAMETERS_MODE = "describe_parameters";
+static constexpr std::string_view SESSION_OPTION_PREFIX = "firebolt.session.";
 
 // Session parameters the engine uses to keep a statement inside an open
 // transaction.  Set by the server through Firebolt-Update-Parameters after BEGIN.
 static constexpr const char * TRANSACTION_ID_PARAM = "transaction_id";
 static constexpr const char * TRANSACTION_SEQUENCE_PARAM = "transaction_sequence_id";
+
+static AdbcStatusCode UnknownOption(const char * scope, const char * key, AdbcError * error)
+{
+    if (!key)
+        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, std::string(scope) + " option key is null");
+    return SetError(error, ADBC_STATUS_NOT_FOUND, std::string("Unknown ") + scope + " option '" + key + "'");
+}
 
 // ============================================================
 // curl global init / cleanup (once per process)
@@ -155,6 +179,15 @@ static AdbcStatusCode RunSimpleSql(FireboltConnection * conn, const char * sql, 
     ApplySessionUpdates(conn, resp);
     if (!resp.isSuccess())
         return HttpRespToStatus(resp, error);
+    return ADBC_STATUS_OK;
+}
+
+static AdbcStatusCode RunIngestPreSql(FireboltConnection * conn, const std::string & sql, IngestMode mode, AdbcError * error)
+{
+    auto resp = conn->http->executeQuery(sql, conn->session_params);
+    ApplySessionUpdates(conn, resp);
+    if (!resp.isSuccess())
+        return IngestHttpRespToStatus(resp, mode, error);
     return ADBC_STATUS_OK;
 }
 
@@ -253,6 +286,35 @@ static AdbcStatusCode DatabaseNew(AdbcDatabase * db, AdbcError * error)
     }
 }
 
+static AdbcStatusCode DatabaseGetOption(AdbcDatabase * db, const char * key, char * /*value*/, size_t * /*length*/, AdbcError * error)
+{
+    if (!db || !db->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Database not initialized");
+    return UnknownOption("database", key, error);
+}
+
+static AdbcStatusCode
+DatabaseGetOptionBytes(AdbcDatabase * db, const char * key, uint8_t * /*value*/, size_t * /*length*/, AdbcError * error)
+{
+    if (!db || !db->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Database not initialized");
+    return UnknownOption("database", key, error);
+}
+
+static AdbcStatusCode DatabaseGetOptionDouble(AdbcDatabase * db, const char * key, double * /*value*/, AdbcError * error)
+{
+    if (!db || !db->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Database not initialized");
+    return UnknownOption("database", key, error);
+}
+
+static AdbcStatusCode DatabaseGetOptionInt(AdbcDatabase * db, const char * key, int64_t * /*value*/, AdbcError * error)
+{
+    if (!db || !db->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Database not initialized");
+    return UnknownOption("database", key, error);
+}
+
 // Refuse an option, but not necessarily right now.
 //
 // A driver manager collects options set before the driver is even loaded and
@@ -349,9 +411,10 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
         // diagnostic anywhere.
         return RejectOption(fdb, error, ADBC_STATUS_NOT_FOUND, "Unknown Firebolt database option '" + k + "'");
     }
-    // Keys outside the firebolt.* namespace are accepted and ignored: the
-    // driver manager sets some of them itself, and callers pass connection
-    // parameters this driver does not consume yet.
+    else
+    {
+        return RejectOption(fdb, error, ADBC_STATUS_NOT_IMPLEMENTED, "Unsupported database option '" + k + "'");
+    }
     return ADBC_STATUS_OK;
 }
 
@@ -530,9 +593,12 @@ static AdbcStatusCode ConnectionSetOption(AdbcConnection * conn, const char * ke
         return ADBC_STATUS_OK;
     }
 
-    // Everything else stored as a session parameter appended to query URL
-    fc->session_params[k] = v;
-    return ADBC_STATUS_OK;
+    if (k.rfind(SESSION_OPTION_PREFIX, 0) == 0 && k.size() > SESSION_OPTION_PREFIX.size())
+    {
+        fc->session_params[k.substr(SESSION_OPTION_PREFIX.size())] = v;
+        return ADBC_STATUS_OK;
+    }
+    return SetError(error, ADBC_STATUS_NOT_IMPLEMENTED, "Unsupported connection option '" + k + "'");
 }
 
 static AdbcStatusCode ConnectionInit(AdbcConnection * conn, AdbcDatabase * db, AdbcError * error)
@@ -572,6 +638,98 @@ static AdbcStatusCode ConnectionInit(AdbcConnection * conn, AdbcDatabase * db, A
     {
         return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
     }
+}
+
+static AdbcStatusCode CopyOptionString(const std::string & option_value, char * value, size_t * length, AdbcError * error)
+{
+    if (!length)
+        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option length is null");
+
+    const size_t available_length = *length;
+    const size_t required_length = option_value.size() + 1;
+    *length = required_length;
+    if (available_length < required_length)
+        return ADBC_STATUS_OK;
+    if (!value)
+        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option value buffer is null");
+
+    memcpy(value, option_value.c_str(), required_length);
+    return ADBC_STATUS_OK;
+}
+
+static AdbcStatusCode QueryConnectionStringOption(
+    FireboltConnection * conn, const std::string & sql, const std::string & option_name, std::string & out, AdbcError * error)
+{
+    auto resp = conn->http->executeQuery(sql, conn->session_params);
+    ApplySessionUpdates(conn, resp);
+    if (!resp.isSuccess())
+        return HttpRespToStatus(resp, error);
+    return ReadSingleStringPayload(std::move(resp.body), option_name, out, error);
+}
+
+static AdbcStatusCode ConnectionGetOption(AdbcConnection * conn, const char * key, char * value, size_t * length, AdbcError * error)
+{
+    if (!conn || !conn->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    auto * fc = static_cast<FireboltConnection *>(conn->private_data);
+    if (!fc->http)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    if (!key)
+        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
+
+    std::lock_guard<std::mutex> lock(fc->get_option_mutex);
+    std::string option_value;
+    AdbcStatusCode status = ADBC_STATUS_OK;
+    if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_CATALOG) == 0)
+    {
+        status = QueryConnectionStringOption(fc, "SELECT current_database()", key, option_value, error);
+    }
+    else if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_DB_SCHEMA) == 0)
+    {
+        status = QueryConnectionStringOption(fc, "SELECT current_schema()", key, option_value, error);
+    }
+    else if (strcmp(key, ADBC_CONNECTION_OPTION_AUTOCOMMIT) == 0)
+    {
+        option_value = fc->autocommit ? ADBC_OPTION_VALUE_ENABLED : ADBC_OPTION_VALUE_DISABLED;
+    }
+    else if (std::string_view(key).rfind(SESSION_OPTION_PREFIX, 0) == 0 && std::string_view(key).size() > SESSION_OPTION_PREFIX.size())
+    {
+        const std::string parameter_name{std::string_view(key).substr(SESSION_OPTION_PREFIX.size())};
+        const auto parameter = fc->session_params.find(parameter_name);
+        if (parameter == fc->session_params.end())
+            return UnknownOption("connection", key, error);
+        option_value = parameter->second;
+    }
+    else
+    {
+        return UnknownOption("connection", key, error);
+    }
+
+    if (status != ADBC_STATUS_OK)
+        return status;
+    return CopyOptionString(option_value, value, length, error);
+}
+
+static AdbcStatusCode
+ConnectionGetOptionBytes(AdbcConnection * conn, const char * key, uint8_t * /*value*/, size_t * /*length*/, AdbcError * error)
+{
+    if (!conn || !conn->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    return UnknownOption("connection", key, error);
+}
+
+static AdbcStatusCode ConnectionGetOptionDouble(AdbcConnection * conn, const char * key, double * /*value*/, AdbcError * error)
+{
+    if (!conn || !conn->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    return UnknownOption("connection", key, error);
+}
+
+static AdbcStatusCode ConnectionGetOptionInt(AdbcConnection * conn, const char * key, int64_t * /*value*/, AdbcError * error)
+{
+    if (!conn || !conn->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    return UnknownOption("connection", key, error);
 }
 
 static AdbcStatusCode ConnectionRelease(AdbcConnection * conn, AdbcError * /*error*/)
@@ -880,30 +1038,30 @@ static AdbcStatusCode BuildParameterSets(const BoundData & bound, bool bind_by_n
 // Parameter metadata (execution_mode=describe_parameters)
 // ============================================================
 
-// Pull the single string cell out of a describe response.
-static AdbcStatusCode ReadDescribePayload(std::vector<uint8_t> body, std::string & out, AdbcError * error)
+// Pull the single string cell out of an Arrow response.
+static AdbcStatusCode ReadSingleStringPayload(std::vector<uint8_t> body, const std::string & context, std::string & out, AdbcError * error)
 {
     nanoarrow::UniqueArrayStream stream;
     std::string err = ExportIpcBytesAsArrowStream(std::move(body), stream.get());
     if (!err.empty())
-        return SetError(error, ADBC_STATUS_INTERNAL, "Cannot read the describe response: " + err);
+        return SetError(error, ADBC_STATUS_INTERNAL, "Cannot read the " + context + " response: " + err);
 
     nanoarrow::UniqueSchema schema;
     if (stream->get_schema(stream.get(), schema.get()) != 0 || schema->n_children != 1)
-        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected describe response shape");
+        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected " + context + " response shape");
 
     nanoarrow::UniqueArray batch;
     if (stream->get_next(stream.get(), batch.get()) != 0 || !batch->release || batch->length < 1)
-        return SetError(error, ADBC_STATUS_INTERNAL, "Empty describe response");
+        return SetError(error, ADBC_STATUS_INTERNAL, "Empty " + context + " response");
 
     ArrowArrayView view{};
     memset(&view, 0, sizeof(view));
     FIREBOLT_SCOPE_GUARD(ArrowArrayViewReset(&view));
     if (ArrowArrayViewInitFromSchema(&view, schema->children[0], nullptr) != 0
         || ArrowArrayViewSetArray(&view, batch->children[0], nullptr) != 0)
-        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected describe response type");
+        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected " + context + " response type");
     if (ArrowArrayViewIsNull(&view, 0) || (view.storage_type != NANOARROW_TYPE_STRING && view.storage_type != NANOARROW_TYPE_LARGE_STRING))
-        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected describe response type");
+        return SetError(error, ADBC_STATUS_INTERNAL, "Unexpected " + context + " response type");
 
     ArrowStringView s = ArrowArrayViewGetStringUnsafe(&view, 0);
     out.assign(s.data, static_cast<size_t>(s.size_bytes));
@@ -936,7 +1094,7 @@ static AdbcStatusCode Describe(FireboltStatement * fs, std::string & out_payload
     if (!resp.isSuccess())
         return HttpRespToStatus(resp, error);
 
-    return ReadDescribePayload(std::move(resp.body), out_payload, error);
+    return ReadSingleStringPayload(std::move(resp.body), "describe", out_payload, error);
 }
 
 static AdbcStatusCode StatementGetParameterSchema(AdbcStatement * stmt, ArrowSchema * schema, AdbcError * error)
@@ -1044,7 +1202,36 @@ static AdbcStatusCode StatementSetOption(AdbcStatement * stmt, const char * key,
             return ADBC_STATUS_OK;
         return SetError(error, ADBC_STATUS_NOT_IMPLEMENTED, "Temporary ingest tables are not supported");
     }
-    return ADBC_STATUS_OK;
+    return SetError(error, ADBC_STATUS_NOT_IMPLEMENTED, "Unsupported statement option '" + std::string(k) + "'");
+}
+
+static AdbcStatusCode StatementGetOption(AdbcStatement * stmt, const char * key, char * /*value*/, size_t * /*length*/, AdbcError * error)
+{
+    if (!stmt || !stmt->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Statement not initialized");
+    return UnknownOption("statement", key, error);
+}
+
+static AdbcStatusCode
+StatementGetOptionBytes(AdbcStatement * stmt, const char * key, uint8_t * /*value*/, size_t * /*length*/, AdbcError * error)
+{
+    if (!stmt || !stmt->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Statement not initialized");
+    return UnknownOption("statement", key, error);
+}
+
+static AdbcStatusCode StatementGetOptionDouble(AdbcStatement * stmt, const char * key, double * /*value*/, AdbcError * error)
+{
+    if (!stmt || !stmt->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Statement not initialized");
+    return UnknownOption("statement", key, error);
+}
+
+static AdbcStatusCode StatementGetOptionInt(AdbcStatement * stmt, const char * key, int64_t * /*value*/, AdbcError * error)
+{
+    if (!stmt || !stmt->private_data)
+        return SetError(error, ADBC_STATUS_INVALID_STATE, "Statement not initialized");
+    return UnknownOption("statement", key, error);
 }
 
 static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStream * out, int64_t * rows_affected, AdbcError * error)
@@ -1148,26 +1335,27 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
 
         for (const auto & stmt_sql : pre_sql)
         {
-            AdbcStatusCode pre_rc = RunSimpleSql(conn, stmt_sql.c_str(), error);
+            AdbcStatusCode pre_rc = RunIngestPreSql(conn, stmt_sql, fs->bound->mode, error);
             if (pre_rc != ADBC_STATUS_OK)
                 return pre_rc;
         }
 
         HttpResponse resp;
+        std::vector<std::vector<uint8_t>> parameter_response_bodies;
         if (is_ingest)
         {
             resp = conn->http->executeInsert(sql, ipc_bytes, conn->session_params);
             ApplySessionUpdates(conn, resp);
             if (!resp.isSuccess())
-                return HttpRespToStatus(resp, error);
+                return IngestHttpRespToStatus(resp, fs->bound->mode, error);
         }
         else if (!param_sets.empty())
         {
             // One request per parameter set — "the query is executed once per row of
             // the bound data", for ExecuteQuery as much as ExecuteUpdate.  A failure
             // stops the run; earlier executions stay applied, which is what a
-            // transaction is for.  A requested result set is the last execution's,
-            // there being one ArrowArrayStream to hand back.
+            // transaction is for.  For ExecuteQuery, retain each response so their
+            // record batches can be exposed through one ArrowArrayStream.
             for (const auto & param_set : param_sets)
             {
                 // A per-request copy: a caller's own `query_parameters` session
@@ -1179,6 +1367,8 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
                 ApplySessionUpdates(conn, resp);
                 if (!resp.isSuccess())
                     return HttpRespToStatus(resp, error);
+                if (out)
+                    parameter_response_bodies.push_back(std::move(resp.body));
             }
         }
         else
@@ -1193,7 +1383,9 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
 
         if (out)
         {
-            std::string err = ExportIpcBytesAsArrowStream(std::move(resp.body), out);
+            std::string err = parameter_response_bodies.empty()
+                ? ExportIpcBytesAsArrowStream(std::move(resp.body), out)
+                : ExportIpcResponsesAsArrowStream(std::move(parameter_response_bodies), out);
             if (!err.empty())
                 return SetError(error, ADBC_STATUS_INTERNAL, err);
         }
@@ -1229,11 +1421,19 @@ static AdbcStatusCode PopulateDriver(AdbcDriver * driver, AdbcError * error)
     driver->release = DriverRelease;
 
     driver->DatabaseNew = DatabaseNew;
+    driver->DatabaseGetOption = DatabaseGetOption;
+    driver->DatabaseGetOptionBytes = DatabaseGetOptionBytes;
+    driver->DatabaseGetOptionDouble = DatabaseGetOptionDouble;
+    driver->DatabaseGetOptionInt = DatabaseGetOptionInt;
     driver->DatabaseSetOption = DatabaseSetOption;
     driver->DatabaseInit = DatabaseInit;
     driver->DatabaseRelease = DatabaseRelease;
 
     driver->ConnectionNew = ConnectionNew;
+    driver->ConnectionGetOption = ConnectionGetOption;
+    driver->ConnectionGetOptionBytes = ConnectionGetOptionBytes;
+    driver->ConnectionGetOptionDouble = ConnectionGetOptionDouble;
+    driver->ConnectionGetOptionInt = ConnectionGetOptionInt;
     driver->ConnectionSetOption = ConnectionSetOption;
     driver->ConnectionInit = ConnectionInit;
     driver->ConnectionRelease = ConnectionRelease;
@@ -1246,6 +1446,10 @@ static AdbcStatusCode PopulateDriver(AdbcDriver * driver, AdbcError * error)
     driver->ConnectionRollback = ConnectionRollback;
 
     driver->StatementNew = StatementNew;
+    driver->StatementGetOption = StatementGetOption;
+    driver->StatementGetOptionBytes = StatementGetOptionBytes;
+    driver->StatementGetOptionDouble = StatementGetOptionDouble;
+    driver->StatementGetOptionInt = StatementGetOptionInt;
     driver->StatementRelease = StatementRelease;
     driver->StatementExecuteQuery = StatementExecuteQuery;
     driver->StatementPrepare = StatementPrepare;
