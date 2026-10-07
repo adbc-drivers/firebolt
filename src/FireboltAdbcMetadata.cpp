@@ -356,7 +356,7 @@ AdbcStatusCode ConnectionGetInfo(
         {ADBC_INFO_VENDOR_NAME, 0, "Firebolt", false, 0},
         {ADBC_INFO_VENDOR_SQL, 1, "", true, 0},
         {ADBC_INFO_VENDOR_SUBSTRAIT, 1, "", false, 0},
-        {ADBC_INFO_DRIVER_NAME, 0, "Firebolt ADBC Driver", false, 0},
+        {ADBC_INFO_DRIVER_NAME, 0, "ADBC Driver for Firebolt", false, 0},
         {ADBC_INFO_DRIVER_VERSION, 0, FIREBOLT_ADBC_VERSION, false, 0},
         {ADBC_INFO_DRIVER_ADBC_VERSION, 2, "", false, ADBC_VERSION_1_1_0},
     };

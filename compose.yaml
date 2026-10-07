@@ -1,0 +1,73 @@
+# Copyright (c) 2026 ADBC Drivers Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: firebolt
+services:
+  # The shared workflow waits for a service named test-service. Keep the
+  # database and one-shot initialization separate so --wait covers both.
+  test-service:
+    image: alpine:3.23
+    command: ["sleep", "infinity"]
+    depends_on:
+      firebolt:
+        condition: service_healthy
+      firebolt-init:
+        condition: service_completed_successfully
+
+  firebolt:
+    image: ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
+    # Firebolt Core uses io_uring. Its documented Docker invocation disables
+    # the default seccomp profile and raises RLIMIT_MEMLOCK to 8 GiB so that
+    # registered buffers can be pinned without ENOMEM:
+    # https://github.com/firebolt-db/firebolt-core#readme
+    security_opt:
+      - seccomp:unconfined
+    ulimits:
+      memlock: 8589934592
+    healthcheck:
+      # /ping becomes ready before the engine accepts queries, so exercise the
+      # query endpoint with the CLI shipped in the image.
+      test:
+        - CMD
+        - /usr/local/bin/firebolt
+        - client
+        - --endpoint
+        - http://127.0.0.1:3473
+        - --insecure
+        - --quiet
+        - --command
+        - SELECT 1
+      interval: 2s
+      timeout: 10s
+      retries: 60
+      start_period: 10s
+    ports:
+      - "3473:3473"
+
+  firebolt-init:
+    image: ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        endpoint="http://firebolt:3473"
+        firebolt client --endpoint "$${endpoint}" --insecure --quiet --command \
+          "CREATE SCHEMA IF NOT EXISTS firebolt_validation_secondary"
+        firebolt client --endpoint "$${endpoint}" --insecure --quiet --command \
+          "CREATE DATABASE IF NOT EXISTS firebolt_validation_secondary"
+        firebolt client --endpoint "$${endpoint}" \
+          --database firebolt_validation_secondary --insecure --quiet --command \
+          "CREATE SCHEMA IF NOT EXISTS firebolt_validation_secondary"
+    depends_on:
+      firebolt:
+        condition: service_healthy
