@@ -147,9 +147,14 @@ Beyond what pre-commit and clang-tidy enforce:
   nanoarrow is Apache Arrow's official embedded C implementation: zero external deps,
   fully PIC, ~30 KB compiled, supports the full Arrow IPC stream format.
 - **Static third-party deps** — `curl`, `nanoarrow`, and test dependencies are linked
-  statically from `submodule` build outputs. Linux also links BoringSSL and c-ares;
-  macOS uses Secure Transport and Windows uses Schannel. System runtime libraries
-  remain dynamic.
+  statically from `submodule` build outputs. Linux and macOS also link BoringSSL
+  (on macOS, curl's Apple SecTrust verifies peers against the system keychain);
+  Windows uses Schannel. System runtime libraries remain dynamic.
+- **DNS goes through the OS** — curl's threaded resolver runs `getaddrinfo` on a
+  helper thread on every platform, so names resolve as everywhere else on the host
+  (nsswitch, systemd-resolved, VPN split DNS, `/etc/resolver`). c-ares was dropped:
+  it reads only `resolv.conf`/`hosts`, and the driver's one blocking request per
+  connection gains nothing from asynchronous lookups.
 - **JSON goes through `nlohmann/json`, not hand-rolled parsing** — two protocol
   surfaces are JSON: the `query_parameters` setting the driver writes and the
   `describe_parameters` payload it reads. The library owns escaping, UTF-8 validation
@@ -310,7 +315,6 @@ All required non-system deps are expected under `submodule`:
 | curl headers | `submodule/curl/include` |
 | libcurl | `build/submodule/curl/lib/libcurl.a` |
 | BoringSSL | `build/submodule/boringssl/libssl.a`, `libcrypto.a` |
-| c-ares | `build/submodule/c-ares/src/lib/libcares.a` |
 | nanoarrow source | `submodule/nanoarrow` |
 | nlohmann/json (header-only) | `submodule/json/single_include` |
 | googletest source (tests) | `submodule/googletest` |

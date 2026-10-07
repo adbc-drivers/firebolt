@@ -74,7 +74,7 @@ CaBundleResult resolveCaBundle(const std::string & configured_path)
     const char * raw_env_path = std::getenv("SSL_CERT_FILE");
     const std::string env_path = raw_env_path ? raw_env_path : "";
 #if defined(__APPLE__) || defined(_WIN32)
-    // Secure Transport and Schannel use the native certificate store when
+    // Apple SecTrust and Schannel use the native certificate store when
     // CURLOPT_CAINFO is not set. Explicit file configuration still wins.
     if (configured_path.empty() && env_path.empty())
         return {};

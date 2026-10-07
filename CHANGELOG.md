@@ -25,9 +25,10 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - **Native platform builds.** The generated build pipeline now produces and tests
-  Linux x86_64/aarch64, macOS arm64, and Windows x86_64 drivers. macOS uses Secure
-  Transport and Windows uses Schannel; Linux release artifacts continue to use
-  BoringSSL with a manylinux_2_28 baseline.
+  Linux x86_64/aarch64, macOS arm64, and Windows x86_64 drivers. Linux and macOS
+  use BoringSSL (macOS verifies peers against the system keychain through Apple
+  SecTrust) and Windows uses Schannel; Linux release artifacts use a
+  manylinux_2_28 baseline.
 - **ADBC validation suite.** Added the shared driver validation tests, Firebolt
   type-specific cases, a local Compose environment, and generated CI coverage.
 - **Runtime metadata.** `AdbcConnectionGetInfo` now reports the Firebolt server's
@@ -67,6 +68,13 @@ All notable changes to this project are documented here. The format follows
 - **FB2 only:** `username` and `password` are no longer accepted and ignored. They are
   FB2 SaaS (Legacy) mode credentials now, so setting them without
   `firebolt.account` fails `AdbcDatabaseInit` with `ADBC_STATUS_INVALID_ARGUMENT`.
+- **curl 8.22.0** (was 8.8.0). On macOS, TLS moves from Secure Transport, which curl
+  8.15 removed and which stops at TLS 1.2, to BoringSSL with Apple SecTrust: TLS 1.3,
+  and certificates are still trusted from the system keychain.
+- **Host names resolve through the operating system on every platform.** Linux used
+  c-ares, which reads only `/etc/resolv.conf` and `/etc/hosts`; it now uses
+  `getaddrinfo` like macOS and Windows, so nsswitch, systemd-resolved and VPN split
+  DNS apply. c-ares is no longer a dependency.
 
 ## [0.1.1] - 2026-08-11
 

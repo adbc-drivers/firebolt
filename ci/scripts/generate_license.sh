@@ -24,7 +24,6 @@ license_files=(
   "submodule/nanoarrow/LICENSE.txt"
   "submodule/boringssl/LICENSE"
   "submodule/boringssl/third_party/fiat/LICENSE"
-  "submodule/c-ares/LICENSE.md"
   "submodule/curl/COPYING"
   "submodule/json/LICENSE.MIT"
 )
@@ -58,6 +57,5 @@ append_component "BoringSSL" "submodule/boringssl/LICENSE"
 append_component \
   "fiat-crypto (included by BoringSSL)" \
   "submodule/boringssl/third_party/fiat/LICENSE"
-append_component "c-ares" "submodule/c-ares/LICENSE.md"
 append_component "curl" "submodule/curl/COPYING"
 append_component "nlohmann/json" "submodule/json/LICENSE.MIT"
