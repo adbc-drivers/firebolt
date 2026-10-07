@@ -1,0 +1,72 @@
+# Copyright (c) 2026 ADBC Drivers Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+# FB2 only: runs tests/integration/tests/fb2_legacy_live against a real
+# Firebolt 2.0 SaaS account on every pull request and push to main.
+#
+# Optional by design:
+#   - Without the FIREBOLT_FB2_CLIENT_ID secret (forks, or before the secrets
+#     are configured) every step is skipped and the job succeeds.
+#   - continue-on-error: a failure (an auto-stopped engine, say) neither fails
+#     the workflow nor blocks a merge.
+#
+# Repository secrets: FIREBOLT_FB2_CLIENT_ID, FIREBOLT_FB2_CLIENT_SECRET,
+# FIREBOLT_FB2_ACCOUNT, FIREBOLT_FB2_ENGINE, FIREBOLT_FB2_ENVIRONMENT.
+# Each run creates its own adbc_test_<random> database and drops it at the end.
+name: fb2-live
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fb2-live:
+    name: FB2 live tests (optional)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    env:
+      FIREBOLT_FB2_CLIENT_ID: ${{ secrets.FIREBOLT_FB2_CLIENT_ID }}
+      FIREBOLT_FB2_CLIENT_SECRET: ${{ secrets.FIREBOLT_FB2_CLIENT_SECRET }}
+      FIREBOLT_FB2_ACCOUNT: ${{ secrets.FIREBOLT_FB2_ACCOUNT }}
+      FIREBOLT_FB2_ENGINE: ${{ secrets.FIREBOLT_FB2_ENGINE }}
+      FIREBOLT_FB2_ENVIRONMENT: ${{ secrets.FIREBOLT_FB2_ENVIRONMENT }}
+    steps:
+      - name: Skip without FB2 credentials
+        if: env.FIREBOLT_FB2_CLIENT_ID == ''
+        run: echo "FIREBOLT_FB2_* secrets are not set; skipping the FB2 live tests."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: env.FIREBOLT_FB2_CLIENT_ID != ''
+        with:
+          persist-credentials: false
+          submodules: 'recursive'
+
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.2
+        if: env.FIREBOLT_FB2_CLIENT_ID != ''
+        with:
+          pixi-version: v0.72.0
+          run-install: false
+
+      - name: Build
+        if: env.FIREBOLT_FB2_CLIENT_ID != ''
+        run: ./ci/scripts/build.sh test linux amd64
+
+      - name: FB2 live tests
+        if: env.FIREBOLT_FB2_CLIENT_ID != ''
+        run: ./tests/integration/runner.py tests/fb2_legacy_live -rs
