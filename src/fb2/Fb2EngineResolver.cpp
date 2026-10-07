@@ -18,7 +18,11 @@
 
 #include <nlohmann/json.hpp>
 
-#include <arpa/inet.h>
+#if defined(_WIN32)
+#    include <ws2tcpip.h> // inet_pton
+#else
+#    include <arpa/inet.h>
+#endif
 
 namespace firebolt::adbc::fb2
 {

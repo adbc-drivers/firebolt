@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build
-        run: ./scripts/build.sh
+        run: ./ci/scripts/build.sh test linux amd64
 
       - name: FB2 live suite
         env:
@@ -44,7 +44,7 @@ jobs:
           FIREBOLT_FB2_ACCOUNT: ${{ secrets.FIREBOLT_FB2_ACCOUNT }}
           FIREBOLT_FB2_ENGINE: ${{ secrets.FIREBOLT_FB2_ENGINE }}
           FIREBOLT_FB2_ENVIRONMENT: ${{ secrets.FIREBOLT_FB2_ENVIRONMENT }}
-        run: ./scripts/test-integration.sh tests/fb2_legacy_live -rs
+        run: ./tests/integration/runner.py tests/fb2_legacy_live -rs
 
       # Every engine suite, pointed at the same 2.0 engine instead of the local one.
       - name: Full suite against FB2 SaaS
@@ -56,4 +56,4 @@ jobs:
           FIREBOLT_FB2_ACCOUNT: ${{ secrets.FIREBOLT_FB2_ACCOUNT }}
           FIREBOLT_FB2_ENGINE: ${{ secrets.FIREBOLT_FB2_ENGINE }}
           FIREBOLT_FB2_ENVIRONMENT: ${{ secrets.FIREBOLT_FB2_ENVIRONMENT }}
-        run: ./scripts/test-integration.sh -rs
+        run: ./tests/integration/runner.py -rs

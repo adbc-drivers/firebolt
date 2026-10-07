@@ -21,7 +21,7 @@ the test container):
     FIREBOLT_FB2_ACCOUNT, FIREBOLT_FB2_ENGINE            a running v5+ engine
     FIREBOLT_FB2_ENVIRONMENT                             optional, default "app"
 
-Run with: ./scripts/test-integration.sh tests/fb2_legacy_live
+Run with: ./tests/integration/runner.py tests/fb2_legacy_live
 To run every engine suite against the same engine instead of the local one, also
 set FIREBOLT_TEST_TARGET=fb2 (see conftest.py).  The engine must be running; an auto-stopped engine fails every test with the
 driver's "start the engine" message.
