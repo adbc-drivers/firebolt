@@ -30,6 +30,7 @@ else is forwarded to pytest as-is.
 
 import argparse
 import logging
+import os
 import os.path as p
 import shlex
 import signal
@@ -213,6 +214,14 @@ def _launch_runner(
             "-e",
             f"COMPOSE_PROJECT_NAME={project}",
         ]
+        + [
+            # FB2 only: the opt-in live suite's settings, forwarded by name so the
+            # secret's value never appears in the logged command line.
+            arg
+            for name in FB2_LIVE_ENV
+            if name in os.environ
+            for arg in ("-e", name)
+        ]
         + tty_flags
         + [
             RUNNER_IMAGE,
@@ -225,6 +234,18 @@ def _launch_runner(
 
     logger.info("Launching runner container %s: %s", container, shlex.join(cmd))
     return subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr).wait()
+
+
+# FB2 only: settings for tests/fb2_legacy_live and FIREBOLT_TEST_TARGET=fb2 (see
+# tests/integration/conftest.py).
+FB2_LIVE_ENV = (
+    "FIREBOLT_TEST_TARGET",
+    "FIREBOLT_FB2_CLIENT_ID",
+    "FIREBOLT_FB2_CLIENT_SECRET",
+    "FIREBOLT_FB2_ACCOUNT",
+    "FIREBOLT_FB2_ENGINE",
+    "FIREBOLT_FB2_ENVIRONMENT",
+)
 
 
 def main():
