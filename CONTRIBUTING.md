@@ -56,6 +56,8 @@ For example, on Apple Silicon macOS:
 
 Replace the platform and architecture arguments as needed. These commands are
 idempotent and can be run from anywhere in the repository.
+On Linux x86_64, `test.sh` also runs clang-tidy, the examples and the integration
+suite (Docker required), as the CI Test job does.
 
 The validation suite uses the native artifact from `pixi run make`; the Firebolt
 engine itself runs in Docker. See [validation/README.md](validation/README.md) for
