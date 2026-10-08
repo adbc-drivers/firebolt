@@ -59,7 +59,8 @@ reference), `docs/authentication.md`, `docs/fb2-saas.md`.
 git submodule update --init --recursive              # once, before any build
 pixi run make                                        # release build → build/libadbc_driver_firebolt.*
 
-# Debug build with C++ unit tests (adjust platform/arch):
+# Debug build with C++ unit tests (adjust platform/arch). On Linux the build runs
+# in the manylinux image and test.sh also runs clang-tidy and the integration suite:
 ./ci/scripts/build.sh test macos arm64
 ./ci/scripts/test.sh macos arm64
 
@@ -101,6 +102,11 @@ Beyond what pre-commit and clang-tidy enforce:
   nlohmann/json (header-only, pinned to packdb's `v3.12.0`), googletest, and
   BoringSSL on Linux and macOS (Windows uses Schannel). System runtime libraries
   stay dynamic.
+- **No Linux `.so` is built against the host's glibc** — on Linux, `ci/scripts/build.sh`
+  re-runs itself in `adbc-drivers/dev`'s `manylinux-cpp` compose service (the
+  release image), with the repository mounted at its own path so ctest, clang-tidy
+  and the integration runner use the build tree from the host. Inside the image
+  (`AUDITWHEEL_PLAT` is set) it builds directly. Debug and test builds included.
 - **nanoarrow, not Arrow C++** — zero deps, PIC, and full Arrow IPC stream support.
 - **Export allowlists** — only `AdbcDriverInit` and `AdbcDriverFireboltInit` are
   exported (`.version`/`.exports` files; `__declspec(dllexport)` on Windows).
