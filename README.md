@@ -29,11 +29,9 @@ installed on the server.
 | | |
 |---|---|
 | **Connections** | `http://` and `https://` (always certificate-verified) |
-| **Authentication** | Engines with authentication disabled, or a bearer token you already have. Sign-in with credentials is not implemented yet — see [docs/authentication.md](docs/authentication.md). |
+| **Authentication** | **Firebolt SaaS:** fully supported, with a service account ([docs/fb2-saas.md](docs/fb2-saas.md)). **Firebolt Core:** authentication disabled, or a bearer token you already have ([docs/authentication.md](docs/authentication.md)). |
 | **Platforms** | Linux x86_64/aarch64 (glibc 2.28+), macOS arm64, Windows x86_64 |
 | **ADBC** | The ADBC 1.0.0 API (see [Feature & Type Support](#feature--type-support)) |
-
-In short: ready for local development, CI and trusted networks.
 
 ## Quickstart
 
@@ -204,7 +202,7 @@ will change when the driver adopts Firebolt's common SDK parameter names
 | Query parameters (`$1`, named via `param('name')`) | ✅ <sup>[5](#fn5)</sup> |
 | Session parameters (`firebolt.session.*`) | ✅ |
 | `rowcount` after DML | ❌ always `-1` <sup>[6](#fn6)</sup> |
-| Sign-in with credentials | ❌ see [docs/authentication.md](docs/authentication.md) |
+| Firebolt Core sign-in with credentials | ❌ see [docs/authentication.md](docs/authentication.md) |
 | Partitioned execution, Substrait | ❌ |
 | ADBC 1.1.0-only functions | ❌ <sup>[7](#fn7)</sup> |
 
