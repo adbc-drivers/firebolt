@@ -35,6 +35,8 @@ installed on the server.
 
 ## Quickstart
 
+This example runs [Firebolt Core](https://docs.firebolt.io/self-managed) locally
+in Docker; to connect to Firebolt SaaS, see [below](#connect-to-firebolt-saas).
 You need Docker and Python 3.9+. It takes about two minutes.
 
 **1. Install the driver manager and the driver** (the driver via [dbc](https://docs.columnar.tech/dbc)):
@@ -74,6 +76,33 @@ greeting: string not null
 n: [[1]]
 greeting: [["hello"]]
 ```
+
+### Connect to Firebolt SaaS
+
+For engines v5 and later. Pass a service account and the account and engine
+names instead of a `uri`; the driver finds the engine for you:
+
+```python
+import os
+import adbc_driver_manager.dbapi as dbapi
+
+with dbapi.connect(
+    driver="firebolt",
+    db_kwargs={
+        "username": os.environ["FIREBOLT_CLIENT_ID"],  # service account ID
+        "password": os.environ["FIREBOLT_CLIENT_SECRET"],  # service account secret
+        "firebolt.account": "my_account",
+        "firebolt.engine": "my_engine",
+        "firebolt.database": "my_db",
+    },
+) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 AS n")
+        print(cur.fetch_arrow_table())
+```
+
+Everything below works the same way. Options and details are in
+[docs/fb2-saas.md](docs/fb2-saas.md).
 
 Runnable versions of everything below are in [`examples/python/`](examples/python).
 

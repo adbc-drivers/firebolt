@@ -181,7 +181,8 @@ only at sites marked `FB2 SaaS (Legacy) mode hook`: option claim, `DatabaseInit`
 bearer token and the one 401 retry, and the response hook. Always built — no switch.
 Do not add FB2 behaviour outside the directory; add a hook. User docs for it live in
 `docs/fb2-saas.md`; the README mentions it only in the "Supported today" table
-(SaaS, v5+ engines only) and under "Other environments".
+(SaaS, v5+ engines only), the "Connect to Firebolt SaaS" quickstart example and
+under "Other environments".
 
 ## HTTP Protocol
 
