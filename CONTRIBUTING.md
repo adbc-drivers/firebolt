@@ -56,17 +56,17 @@ For example, on Apple Silicon macOS:
 
 Replace the platform and architecture arguments as needed. These commands are
 idempotent and can be run from anywhere in the repository.
+On Linux x86_64, `test.sh` also runs clang-tidy, the examples and the integration
+suite (Docker required), as the CI Test job does.
 
 The validation suite uses the native artifact from `pixi run make`; the Firebolt
 engine itself runs in Docker. See [validation/README.md](validation/README.md) for
 the direct Compose and Pixi commands and details about selecting another engine
 image. The generated Linux CI job runs the suite against Firebolt 5.0.0.
 
-On Linux, `ci/scripts/build.sh` — and with it `pixi run make`, the CI builds and
-the release build — always compiles inside the shared `adbc-drivers/dev`
-manylinux_2_28 C++ image, so Docker is required. Every Linux `.so` therefore has
-the glibc 2.28 baseline, and none is ever built against the host's glibc. The
-repository is mounted at its own path, so the build tree stays usable on the host.
+Linux release builds use the shared `adbc-drivers/dev` manylinux_2_28 C++ image.
+This gives release binaries a glibc 2.28 compatibility baseline without
+maintaining a repository-specific builder image.
 
 ### Linting
 
@@ -83,9 +83,7 @@ pre-commit run --all-files      # or run them all by hand
 clang-tidy reads the generated Linux test build's `compile_commands.json` and
 runs with `run-clang-tidy-18` from the Linux CI host. A checkout-only pre-commit
 run skips it when that build does not exist; generated build CI invokes it after
-compilation. Its checks, in `.clang-tidy`, treat every warning as an error. On a
-pull request CI checks only the `.cpp` files the PR changes, and every file when it
-changes a header, `.clang-tidy`, `CMakeLists.txt`, the script or a submodule.
+compilation. Its checks, in `.clang-tidy`, treat every warning as an error.
 
 A file that cannot carry a header (JSON) is listed in `.rat-excludes`; a file
 taken from an Apache project is listed in `.rat-apache`.
@@ -114,11 +112,11 @@ docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:5.0.0-pre.
 python3 examples/python/quickstart.py
 ```
 
-### The Linux CI test run
+### Building outside Docker
 
-On Linux x86_64, `ci/scripts/test.sh` runs everything the CI Test job does: the
-unit tests, clang-tidy, the examples, the whole integration suite and, when the
-`FIREBOLT_FB2_*` variables are set, the optional live FB2 suite:
+`pixi run make` builds natively on macOS and Windows. On Linux, a direct call to
+the CI build hook is useful for quick iteration, but its `.so` carries the host's
+glibc requirement and must not be released:
 
 ```bash
 git submodule update --init --recursive

@@ -94,39 +94,8 @@ if [[ "$platform" != "linux" || "$arch" != "amd64" ]]; then
   exit 0
 fi
 
-# A pull request's checkout is the merge of the PR into its base (HEAD^1), so
-# only the .cpp files it changes need clang-tidy. A change to a header, the
-# checks, the build or a dependency can affect any file, so it checks every
-# one, as does every other event.
-clang_tidy_scope="all"
-clang_tidy_files=()
-if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
-  changed_files="$(git -C "$repo_root" diff --name-only --diff-filter=d HEAD^1 HEAD)"
-  clang_tidy_scope="changed"
-  while IFS= read -r changed_file; do
-    case "$changed_file" in
-      *.cpp)
-        clang_tidy_files+=("$changed_file")
-        ;;
-      *.h | *.h.in | .clang-tidy | CMakeLists.txt | scripts/clang-tidy.sh | submodule/*)
-        clang_tidy_scope="all"
-        clang_tidy_files=()
-        break
-        ;;
-    esac
-  done <<<"$changed_files"
-fi
-
-export FIREBOLT_ADBC_BUILD_DIR="$build_dir"
-if [[ "$clang_tidy_scope" == "all" ]]; then
-  run_phase "clang-tidy (all files)" "${repo_root}/scripts/clang-tidy.sh"
-elif [[ ${#clang_tidy_files[@]} -gt 0 ]]; then
-  run_phase "clang-tidy (${#clang_tidy_files[@]} changed files)" \
-    "${repo_root}/scripts/clang-tidy.sh" "${clang_tidy_files[@]}"
-else
-  printf 'Skipping clang-tidy: the pull request changes no C++ files\n'
-  summarize "clang-tidy" "skipped: no C++ changes"
-fi
+FIREBOLT_ADBC_BUILD_DIR="$build_dir" run_phase "clang-tidy" \
+  "${repo_root}/scripts/clang-tidy.sh"
 
 # The examples are user-facing documentation. Exercise their imports and CLI
 # setup without requiring credentials or a running Firebolt engine.

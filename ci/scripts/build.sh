@@ -64,28 +64,6 @@ esac
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
-
-# A library compiled on this host would require the host's glibc, so every Linux
-# build, test or release, runs in the manylinux image adbc-make releases with
-# (the pypa images set AUDITWHEEL_PLAT). The repository is mounted at its own
-# path, so the build tree stays usable on the host for ctest and clang-tidy.
-if [[ "$platform" == "linux" && -z "${AUDITWHEEL_PLAT:-}" ]]; then
-  dev_package="$(
-    pixi run python -I -c \
-      'import adbc_drivers_dev, pathlib; print(pathlib.Path(adbc_drivers_dev.__file__).parent)'
-  )"
-  SOURCE_ROOT="$repo_root" DOCKER_DEFAULT_PLATFORM="linux/${arch}" exec \
-    docker compose --file "${dev_package}/compose.yaml" run \
-    --rm \
-    --pull always \
-    --user "$(id -u)" \
-    --volume "${repo_root}:${repo_root}" \
-    --workdir "$repo_root" \
-    ${CMAKE_VERBOSE:+--env CMAKE_VERBOSE} \
-    manylinux-cpp \
-    ./ci/scripts/build.sh "$mode" "$platform" "$arch"
-fi
-
 build_dir="${repo_root}/build/ci-${mode}-${platform}-${arch}"
 output_library="${repo_root}/build/libadbc_driver_firebolt.${library_ext}"
 
