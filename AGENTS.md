@@ -19,33 +19,22 @@ limitations under the License.
 ## Project Overview
 
 A standalone C++ shared library (`libadbc_driver_firebolt.so`, `.dylib`, or
-`.dll`) implementing the
-[ADBC 1.1.0](https://arrow.apache.org/adbc/) C API against Firebolt's HTTP query
-interface. Client-side only — loaded at runtime by ADBC driver managers (Python
-`adbc_driver_manager`, R `adbcdrivermanager`, etc.).
+`.dll`) implementing the [ADBC 1.1.0](https://arrow.apache.org/adbc/) C API
+against Firebolt's HTTP query interface. Client-side only — loaded at runtime by
+ADBC driver managers (Python `adbc_driver_manager`, R `adbcdrivermanager`, etc.).
 
-This repository ([`adbc-drivers/firebolt`](https://github.com/adbc-drivers/firebolt),
-formerly `firebolt-db/firebolt-adbc`, whose URLs still redirect) is the driver and
-nothing else: a **completely independent CMake project** with no coupling to the
-packdb build system. It was extracted from `adbc/` in the packdb repo — paths in
-this document are relative to *this* repository's root, not to packdb.
-
-The repository is **public**: everything committed — code, tests, docs, commit
-messages and PR text — is visible to anyone. Never commit secrets, credentials or
-private keys, including test material: generate test certificates at run time.
+This is an independent CMake project, extracted from `adbc/` in the packdb repo.
+The repository ([`adbc-drivers/firebolt`](https://github.com/adbc-drivers/firebolt))
+is **public**: never commit secrets, credentials or private keys, including test
+material — generate test certificates at run time.
 
 ## Directory layout
 
 ```
 .
-├── AGENTS.md                         # this file (CLAUDE.md imports it)
-├── README.md, OPTIONS.md, CHANGELOG.md, CONTRIBUTING.md
 ├── CMakeLists.txt                    # standalone build; project(VERSION) is the one version number
 ├── adbc.h                            # vendored ADBC 1.1.0 C API header
-├── manifest.toml                     # driver package manifest template
-├── license.tpl                       # combined-license section header
-├── adbc_driver_firebolt.version      # Linux linker export allowlist
-├── adbc_driver_firebolt.exports      # macOS linker export allowlist
+├── adbc_driver_firebolt.{version,exports}  # Linux/macOS linker export allowlists
 ├── submodule/                        # every non-system dependency (curl, BoringSSL, nanoarrow, json, …)
 ├── src/                              # the driver
 │   ├── FireboltAdbcDriver.cpp        # ADBC entry points: database, connection, statement
@@ -53,77 +42,42 @@ private keys, including test material: generate test certificates at run time.
 │   └── fb2/                          # FB2 SaaS (Legacy) mode, isolated behind hooks
 ├── tests/
 │   ├── unit/                         # GoogleTest, no server needed
-│   └── integration/                  # pytest in a runner container (runner.py, conftest.py):
-│                                     #   a 1-node engine, a mock server, or an FB2 SaaS engine
-├── validation/                       # shared ADBC validation suite adapter
-├── compose.yaml                      # local Firebolt service for shared validation
+│   └── integration/                  # pytest in a runner container: a 1-node engine,
+│                                     #   a mock server, or an FB2 SaaS engine
+├── validation/                       # shared ADBC validation suite adapter (uses compose.yaml)
 ├── ci/scripts/                       # adbc-make build, test, and license hooks
 ├── scripts/clang-tidy.sh             # clang-tidy against the generated compile database
-├── docs/, examples/python/           # user docs and runnable examples
-└── .github/workflows/                # CI (lint, build, tests) and releases
+└── docs/, examples/python/           # user docs and runnable examples
 ```
 
-## Build
+User docs: `README.md`, `OPTIONS.md` (the authoritative option, error and type
+reference), `docs/authentication.md`, `docs/fb2-saas.md`.
 
-### Recommended: `pixi run make`
-
-Delegates to `adbc-make`, which builds for the current host through
-`ci/scripts/build.sh`. Generated CI and release workflows use the same hook.
-Linux release artifacts build in the public `adbc-drivers/dev` manylinux_2_28
-C++ image; macOS and Windows build natively.
+## Build and test
 
 ```bash
-pixi run make
-# → build/libadbc_driver_firebolt.{so,dylib,dll}
-```
+pixi run make                                        # release build → build/libadbc_driver_firebolt.*
 
-For a debug build with C++ unit tests, invoke the repository hooks directly. For
-example, on Apple Silicon macOS:
-
-```bash
+# Debug build with C++ unit tests (adjust platform/arch):
 git submodule update --init --recursive
-./ci/scripts/build.sh test macos arm64
-./ci/scripts/test.sh macos arm64
-```
-
-Adjust the platform and architecture arguments as needed.
-
-## Testing
-
-CI and local C++ development use `ci/scripts/build.sh` and `ci/scripts/test.sh`.
-The Firebolt-specific integration suite is available locally through its Docker
-runner. The generated Linux validation job runs the shared ADBC validation
-suite against the Compose service.
-
-```bash
-# Native C++ build and unit tests:
 ./ci/scripts/build.sh test macos arm64
 ./ci/scripts/test.sh macos arm64
 
 # Integration tests against a 1-node Firebolt engine (Docker required):
-./tests/integration/runner.py                                    # all tests
-./tests/integration/runner.py -k test_connect                    # filter by name
-./tests/integration/runner.py tests/dml                          # one suite
-./tests/integration/runner.py --engine-image=...:tag -x          # override engine image
+./tests/integration/runner.py                        # all tests
+./tests/integration/runner.py -k test_connect        # filter by name
+./tests/integration/runner.py tests/dml              # one suite
+./tests/integration/runner.py --engine-image=...:tag -x
 
 # Linters (clang-tidy needs a generated Linux test build):
 pre-commit run --all-files
-./scripts/clang-tidy.sh                                          # clang-tidy alone
+./scripts/clang-tidy.sh
 ```
 
-`runner.py` builds `firebolt-adbc-integration-test-runner:latest` locally on
-first invocation (from `tests/integration/docker/Dockerfile`) — no registry
-needed for the runner. The engine image (`--engine-image`, default in
-`runner.py::DEFAULT_ENGINE_IMAGE`) is pulled from the public GHCR repo on every
-run, with a cached copy used only as a fallback when the pull fails.
-
-The image ships the unified `firebolt` binary (server + client): its entrypoint
-execs `firebolt <args>` and its default command is
-`server --data-dir /var/lib/firebolt`. With no config file supplied the server
-starts from its built-in structured (YAML) defaults — one node, all interfaces,
-default ports — so the 1-node fixture writes no config at all. The legacy
-`--node N` + `/firebolt-core/config.json` startup contract is gone; a multi-node
-setup would bind-mount a `config.yaml` at `/var/lib/firebolt/config.yaml`.
+`runner.py` builds its runner image locally on first use. The engine image is
+pulled on every run (a cached copy is the fallback); its registry string lives
+only in `tests/integration/runner.py::DEFAULT_ENGINE_IMAGE`. Readiness is `/ping`
+*and* `SELECT 1` — `/ping` turns green before the engine can serve queries.
 
 ## Code style and naming conventions
 
@@ -138,253 +92,116 @@ Beyond what pre-commit and clang-tidy enforce:
 
 ## Key Design Decisions
 
-- **No packdb internal headers** — the `.so` must be loadable outside the server process.
-- **No dependency discovery in CMake** — this project does not use `find_package`,
-  `find_library`, `find_path`, `find_program`, or `FetchContent` for required deps.
-  All non-system deps must exist under `submodule`.
-- **nanoarrow** instead of packdb's `arrow_static` — `arrow_static` is compiled without
-  `-fPIC` (it targets an executable) so it can't be linked into a shared library.
-  nanoarrow is Apache Arrow's official embedded C implementation: zero external deps,
-  fully PIC, ~30 KB compiled, supports the full Arrow IPC stream format.
-- **Static third-party deps** — `curl`, `nanoarrow`, and test dependencies are linked
-  statically from `submodule` build outputs. Linux and macOS also link BoringSSL
-  (on macOS, curl's Apple SecTrust verifies peers against the system keychain);
-  Windows uses Schannel. System runtime libraries remain dynamic.
-- **DNS goes through the OS** — curl's threaded resolver runs `getaddrinfo` on a
-  helper thread on every platform, so names resolve as everywhere else on the host
-  (nsswitch, systemd-resolved, VPN split DNS, `/etc/resolver`). c-ares was dropped:
-  it reads only `resolv.conf`/`hosts`, and the driver's one blocking request per
-  connection gains nothing from asynchronous lookups.
-- **JSON goes through `nlohmann/json`, not hand-rolled parsing** — two protocol
-  surfaces are JSON: the `query_parameters` setting the driver writes and the
-  `describe_parameters` payload it reads. The library owns escaping, UTF-8 validation
-  and number formatting; it is header-only, so it costs nothing at link time, and it
-  is the version packdb vendors. Not delegated: which JSON type each Arrow value
-  becomes, since the server infers a parameter's SQL type from it.
-- **Calendar arithmetic goes through C++20 `<chrono>`** — `QueryParameters.cpp` renders
-  date, time and timestamp parameters as text. The error-prone parts (civil date from
-  a day count, splitting an instant into day plus time of day, flooring rather than
-  truncating before 1970) are `sys_days`, `year_month_day`, `hh_mm_ss` and
-  `floor<days>`, available in both supported toolchains. Their *formatters* are not —
-  libstdc++ gained those in 13, and the builder image has 11 — so digits go through
-  `snprintf` and `withTimeUnit` dispatches an Arrow time unit to its duration type.
-  Hence no vendored date library.
-- **Export allowlists** — Linux's `adbc_driver_firebolt.version` and macOS's
-  `adbc_driver_firebolt.exports` export only `AdbcDriverInit` and
-  `AdbcDriverFireboltInit`, the name the Foundry's shared-library rules derive from
-  the driver name. Windows marks those entry points with `__declspec(dllexport)`.
-- **clang-tidy uses the generated `compile_commands.json`** — the build exports the
-  database, and `scripts/clang-tidy.sh` runs `run-clang-tidy-18` from the Linux CI
-  host. Checkout-only pre-commit runs skip the hook until a Linux test build exists;
-  generated build CI invokes it after compilation.
-- **Post-build dependency report** — every build prints concise `DT_NEEDED` `.so` names
-  for `libadbc_driver_firebolt.so` so dynamic dependencies are visible in Ninja logs.
-- **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` wraps table
-  names, column names and struct field names in double quotes (embedding `"` doubled)
-  before they are interpolated into auto-generated DDL/INSERT SQL.
-- **Nested-type DDL follows Firebolt's nullability rules** — `arrowTypeToFireboltSqlType()`
-  renders Arrow STRUCT as `STRUCT("field" TYPE, …)` and LIST/LARGE_LIST/FIXED_SIZE_LIST as
-  `ARRAY(TYPE)`, recursing to any depth. A non-nullable Arrow *field* is widened to nullable
-  because Firebolt rejects `STRUCT(… NOT NULL)` ("STRUCT fields have to be nullable"); `NOT
-  NULL` is only emitted for a non-nullable top-level *column*. A zero-field struct maps to
-  nothing (there is no `STRUCT()` in Firebolt), so ingest fails with
-  `ADBC_STATUS_NOT_IMPLEMENTED` instead of uploading DDL the server would reject. MAP has no
-  mapping either and fails the same way.
-- **Single source of truth for the engine image** — the registry string lives only in
-  `tests/integration/runner.py::DEFAULT_ENGINE_IMAGE`, flows through the
-  `FIREBOLT_ENGINE_IMAGE` env var into
-  `helpers/firebolt_engine.py::FireboltInstance.__init__`, and is inlined into the
-  generated docker-compose yaml at run time.
-- **Readiness is `/ping` *and* `SELECT 1`** — `/ping` turns green before the engine can
-  serve queries ("Cluster not yet healthy"), so `FireboltInstance.start()` probes both
-  before handing the URL to tests.
-- **Generated test artifacts are gitignored** — every test run regenerates
-  `tests/integration/_test_runtime_root/` (compose yaml, container logs);
-  the directory is in `.gitignore` so it is never committed.
-- **One version number** — `project(adbc_driver_firebolt VERSION …)` in `CMakeLists.txt` is
-  authoritative. `configure_file` renders `src/Version.h.in` into
-  `build/generated/Version.h`, whose `FIREBOLT_ADBC_VERSION` supplies
-  `ADBC_INFO_DRIVER_VERSION`; the same value sets the target `VERSION`/`SOVERSION`.
-  `script_release.yaml` refuses to publish when the git tag disagrees with it.
-- **A bad option is an error, not a shrug** — an unrecognised `firebolt.*` database
-  key returns `ADBC_STATUS_NOT_FOUND`, other unsupported options return
-  `ADBC_STATUS_NOT_IMPLEMENTED`, connection options under `firebolt.session.*`
-  alone are forwarded as server settings, and a malformed `timeout_sec` returns
-  `ADBC_STATUS_INVALID_ARGUMENT` rather than throwing `std::invalid_argument` through the
-  C ABI and aborting the host process, and `uri` is scheme-checked at `DatabaseInit`.
-- **A rejected database option is reported by `DatabaseInit`, not by `DatabaseSetOption`** —
-  see `RejectOption()`. This is a workaround for a heap overflow in the driver manager, not
-  a style choice. A driver manager buffers options set before the driver is loaded and
-  replays them from inside `AdbcDatabaseInit`; the failure path of that replay in
-  adbc-driver-manager (through at least 1.8.0, `adbc_driver_manager.cc`
-  `SetError(AdbcError*, AdbcError*)`) does
-  `error->message = new char[strlen(src)]` and then writes the terminator at
-  `[strlen(src)]` — one byte past the allocation, which aborts the process. Conventional
-  drivers accept and discard unknown options, so nothing had exercised it. Returning the
-  error from `Init` instead keeps the diagnostic; the manager forwards `Init`'s error
-  struct through untouched. Options set *after* `Init` are refused immediately, since no
-  replay is involved. Revisit if the upstream bug is fixed and the pinned version moves.
-- **No exception may cross the C ABI** — the caller is a C driver manager with no handler,
-  so anything that escapes aborts the host process. Every entry point that can throw
-  wraps its body; `std::stol` and friends need explicit guards.
-- **Binary size: dead code goes, speed stays** — TLS more than doubled the `.so` (2.5 →
-  5.5 MB). The build now compiles everything, dependencies included, with
-  `-ffunction-sections -fdata-sections` and links with `--gc-sections`; with only two
-  exported symbols most of BoringSSL, curl and libstdc++ is unreachable (−1.65 MB). lld
-  (`-fuse-ld=lld`, detected with `check_linker_flag`; `CMAKE_LINKER` is ignored by the
-  compiler driver, so it was never in effect) adds `--icf=all`. curl drops features the
-  driver never calls (`CURL_DISABLE_HTTP_AUTH` and the other auth schemes, HSTS, alt-svc,
-  netrc, the deprecated form API — not MIME, which ingest uses), and BoringSSL builds with
-  `OPENSSL_SMALL`, whose only cost is a slightly slower TLS handshake. Result: 3.45 MB.
-  Deliberately **not** done: `-Os`, which would save another 0.5 MB by slowing the Arrow
-  and JSON hot paths, and stripping the symbol table, which would cost readable crash
-  stacks.
-- **FB2 SaaS (Legacy) mode is isolated, and named as such** — support for Firebolt 2.0
-  SaaS engines (v5+): service-account credentials plus `firebolt.account`/`engine`,
-  exchanged for a token and resolved to an engine URL through the 2.0 control plane. It
-  is a side mode, not the driver's model, so every line of it lives
-  in `src/fb2/` under the `firebolt::adbc::fb2` namespace and a
-  `// FB2 SaaS (Legacy) mode` banner. The main code holds one optional
-  `std::shared_ptr<Fb2LegacyMode>` (database, copied to each connection; null on the Core
-  path) and calls it only at sites marked `FB2 SaaS (Legacy) mode hook`: option claim
-  (`DatabaseSetOption`), `DatabaseInit`, the bearer token and the one 401 retry
-  (`HttpClient`), and the response hook (Firebolt-Update-Endpoint, FB2 error text).
-  It is always built: one configuration, no switch. Do not add FB2 behaviour outside the directory; add a hook. In user docs
-  the feature is "FB2 only" and lives in its own section, never in the main tables.
-- **The CA bundle is chosen at run time, never compiled in** — curl's configure step
-  records the build machine's bundle path, which names the Ubuntu builder image's layout
-  and is wrong on RHEL, Amazon Linux or SUSE. The build sets `CURL_CA_BUNDLE`/`CURL_CA_PATH`
-  to `none`, and `DatabaseInit` resolves one (`TlsConfig.cpp`):
-  `firebolt.ssl_certificate_path`, then `SSL_CERT_FILE`, then the standard distro
-  paths, handed to `CURLOPT_CAINFO`. A configured source that is unreadable is an error,
-  not a fall-through. Verification has no off switch.
-- **TLS capability is asked of libcurl, not tracked in a define** — `curl_version_info`
-  reports whether the linked curl has SSL, so the `https://` rejection is always correct
-  for the library actually loaded rather than for what the build flags claimed.
-- **Query parameters ride the same channel as session settings** — binding sends the
-  values in the `query_parameters` query setting, a JSON array of
-  `{"name": "$1", "value": …}`, and the server substitutes each `$N` into the *parsed*
-  statement (`SqlExprValidator::_visit_parameter` in packdb). Nothing is spliced into
-  SQL text, so the only escaping that matters is JSON escaping. This is the mechanism
-  packdb's own PostgreSQL-wire handler and the `fb` CLI's `--param` both use. Bound
-  data serves two paths, told apart by whether an ingest target table is set: with one
-  it is a multipart ingest payload, without one it is query parameters, one execution
-  per bound row. Since that option decides the destination, ingest options arriving
-  *without* a target table are refused at execute time — checked there, not where the
-  options arrive, since ADBC does not order option calls.
-- **Bind keeps Arrow arrays; only ingest encodes IPC** — `BoundData` holds the bound
-  `ArrowArray` batches, and `SerializeBoundData` runs in the ingest branch of
-  `StatementExecuteQuery`, the only consumer of the bytes. Encoding at bind time would
-  cost every parameterised execution an encode plus decode of data that leaves as
-  JSON, and would refuse any layout nanoarrow's IPC writer cannot encode — Arrow's
-  view layouts among them. `BindStream` drains its stream on the spot, a stream being
-  single-pass. "Data was supplied" is `data_bound`, not a non-empty batch list, so a
-  zero-batch ingest still uploads a schema-only payload and creates an empty table.
-- **A parameter's SQL type is the JSON type of its value** — the format has no type
-  field, so `int`→BIGINT, JSON number→DOUBLE, bool→BOOLEAN, `null`→untyped NULL,
-  string→TEXT. Hence `QueryParameters.cpp` keeps a `.0` on whole doubles (a bare `3`
-  would arrive as a BIGINT), sends decimals as strings (a JSON number is read back
-  through `std::stod`, which rounds), and refuses `binary`/nested types by name
-  instead of sending something the server would misread.
-- **Prepare issues no request; GetParameterSchema does** — there is no server-side
-  prepare, and ADBC makes `Prepare` optional, so it stays local: driver managers call
-  it on every query-text change, and a round-trip there would double the request count
-  of every `execute()`. Parameter types come from re-sending the statement with
-  `execution_mode=describe_parameters`, minus the
-  `transaction_id`/`transaction_sequence_id` session parameters, so type inference
-  never spends a transaction step on a statement the caller never ran.
-- **Nothing about a statement is cached across executions** — neither the describe
-  payload nor a bound payload. DDL from any connection changes a placeholder's type
-  without changing a character of the query, and a driver manager re-issues
-  `SetSqlQuery` only on a text change (dbapi skips it when `operation ==
-  self._last_query`), so a cache keyed on the SQL would outlive its truth with no
-  invalidation event the driver can see.
-- **A statement option a driver manager may leave stale must only ever add behaviour**
-  — `bind_by_name` is the case in point: dbapi sends it once per cursor and never
-  revises it when parameters arrive as Arrow data, so it cannot be trusted to describe
-  the current call. `buildQueryParametersJson` therefore always emits the positional
-  `$N` names and treats the option as a request for *extra* aliases, making a stale
-  `true` cost one unreferenced parameter rather than unbinding every placeholder.
+### Build and dependencies
 
-## Dependencies
+- **No packdb internal headers** — the library must load outside the server process.
+- **No dependency discovery in CMake** — no `find_package`, `find_library`,
+  `find_path`, `find_program`, or `FetchContent` for required deps. Every non-system
+  dep lives under `submodule/` and is linked statically: curl, nanoarrow,
+  nlohmann/json (header-only, pinned to packdb's `v3.12.0`), googletest, and
+  BoringSSL on Linux and macOS (Windows uses Schannel). System runtime libraries
+  stay dynamic.
+- **nanoarrow, not Arrow C++** — zero deps, PIC, and full Arrow IPC stream support.
+- **Export allowlists** — only `AdbcDriverInit` and `AdbcDriverFireboltInit` are
+  exported (`.version`/`.exports` files; `__declspec(dllexport)` on Windows).
+- **Binary size: dead code goes, speed stays** — `-ffunction-sections
+  -fdata-sections` + `--gc-sections`, lld with `--icf=all`, curl features the driver
+  never calls disabled, BoringSSL with `OPENSSL_SMALL`. Deliberately **not** `-Os`
+  (slows the Arrow/JSON hot paths) and not stripped (keeps readable crash stacks).
+- **One version number** — `project(adbc_driver_firebolt VERSION …)` in
+  `CMakeLists.txt` feeds `ADBC_INFO_DRIVER_VERSION` (via `src/Version.h.in`) and the
+  library `VERSION`/`SOVERSION`; the release workflow refuses a mismatching tag.
 
-All required non-system deps are expected under `submodule`:
+### Network and TLS
 
-| Dep | Path |
-|-----|---------------------|
-| curl headers | `submodule/curl/include` |
-| libcurl | `build/submodule/curl/lib/libcurl.a` |
-| BoringSSL | `build/submodule/boringssl/libssl.a`, `libcrypto.a` |
-| nanoarrow source | `submodule/nanoarrow` |
-| nlohmann/json (header-only) | `submodule/json/single_include` |
-| googletest source (tests) | `submodule/googletest` |
+- **DNS goes through the OS** — curl's threaded resolver calls `getaddrinfo`, so
+  nsswitch, systemd-resolved and VPN split DNS work. Don't reintroduce c-ares.
+- **The CA bundle is chosen at run time, never compiled in** — `TlsConfig.cpp`
+  resolves `firebolt.ssl_certificate_path`, then `SSL_CERT_FILE`, then the standard
+  distro paths. An unreadable configured source is an error, not a fall-through.
+  Verification has no off switch.
+- **TLS capability is asked of libcurl** (`curl_version_info`), not tracked in a define.
 
-`nlohmann/json` is pinned to `v3.12.0`, the version packdb vendors, and included as a
-SYSTEM directory so its headers are exempt from this project's warnings. Header-only:
-nothing is added to the link line.
+### C ABI safety and options
 
-## ADBC Options Reference
+- **No exception may cross the C ABI** — the caller is a C driver manager, so an
+  escaping exception aborts the host process. Every entry point that can throw wraps
+  its body; `std::stol` and friends need explicit guards.
+- **A bad option is an error** — an unrecognised `firebolt.*` database key returns
+  `ADBC_STATUS_NOT_FOUND`, other unsupported options `ADBC_STATUS_NOT_IMPLEMENTED`;
+  only `firebolt.session.*` connection options are forwarded as server settings.
+- **A rejected database option is reported by `DatabaseInit`, not
+  `DatabaseSetOption`** (`RejectOption()`). This works around a heap overflow in
+  adbc-driver-manager (seen through at least 1.8.0): when it replays buffered options
+  inside `AdbcDatabaseInit` and one fails, its `SetError` copies the message one byte
+  past its allocation and aborts. Options set *after* `Init` are refused immediately.
+  Revisit if the upstream bug is fixed.
 
-**[OPTIONS.md](OPTIONS.md) is the authoritative reference** — every option, every
-error status, and the full Arrow→Firebolt type mapping. Summary only here.
+### Ingest and query parameters
 
-| Key | Set on | Description |
-|-----|--------|-------------|
-| `"uri"` | Database | `firebolt://host[:port]/[db]?ssl_mode=…` (resolved to the HTTP endpoint at `Init` by `src/FireboltUri.cpp`; the path is the database, an explicit `firebolt.database` wins) or the HTTP query endpoint, e.g. `http://localhost:3473`. Scheme-validated at `Init`; `https://` verifies the peer against the CA bundle chosen at `Init`. |
-| `"firebolt.token"` | Database, Connection | Bearer token — omit for an auth-disabled engine. Per-connection when set on the connection. Contradicts the SDK auth spec (a raw JWT belongs in `FIREBOLT_TOKEN`) and will be removed; see `docs/authentication.md`. |
-| `"firebolt.database"` | Database | Database name (appended as `?database=…` query param) |
-| `"firebolt.ssl_certificate_path"` | Database | PEM CA bundle for `https://`; default is `SSL_CERT_FILE`, then the distro bundle paths |
-| `"firebolt.timeout_sec"` | Database | Total request timeout in whole seconds; `0` (the default) disables it |
-| `ADBC_CONNECTION_OPTION_AUTOCOMMIT` | Connection | `false` enables explicit transactions: lazy `BEGIN`, then `Commit`/`Rollback` |
-| `ADBC_INGEST_OPTION_TARGET_TABLE` | Statement | Target table for the bind-data ingest path; auto-generates `INSERT INTO {target} ({cols}) SELECT * FROM read_arrow('upload://data.arrow')` on `ExecuteUpdate` |
-| `"adbc.statement.bind_by_name"` | Statement | `true` additionally names bound parameters after their columns (for `param('name')`); the positional `$N` names are always sent too, so a stale setting cannot unbind a placeholder. Only the canonical `true`/`false` accepted. Absent from the vendored ADBC 1.1.0 header, so defined locally |
-| `"firebolt.session.<name>"` | Connection | Stores `<name>` as a session parameter appended to the query URL |
+- **SQL injection safety** — `quoteIdentifier()` in `IngestSqlBuilder.cpp` quotes
+  every table, column and struct field name in generated DDL/INSERT SQL.
+- **Nested-type DDL follows Firebolt's nullability rules** — STRUCT fields are
+  always nullable (Firebolt rejects `STRUCT(… NOT NULL)`); `NOT NULL` only on
+  top-level columns. Zero-field structs and MAP have no mapping and fail with
+  `ADBC_STATUS_NOT_IMPLEMENTED` before anything is uploaded.
+- **Query parameters ride the `query_parameters` setting** — a JSON array of
+  `{"name": "$1", "value": …}`; the server substitutes into the *parsed* statement,
+  so nothing is spliced into SQL and only JSON escaping matters. Bound data with an
+  ingest target table is a multipart ingest payload; without one it is query
+  parameters, one execution per row. Ingest options without a target table are
+  refused at execute time.
+- **Bind keeps Arrow arrays; only ingest encodes IPC** — `BoundData` holds the
+  batches and `SerializeBoundData` runs only in the ingest branch. `BindStream`
+  drains its stream immediately. `data_bound`, not a non-empty batch list, means
+  "data was supplied", so a zero-batch ingest still creates an empty table.
+- **A parameter's SQL type is the JSON type of its value** — `int`→BIGINT,
+  number→DOUBLE, bool→BOOLEAN, `null`→NULL, string→TEXT. So whole doubles keep a
+  `.0`, decimals go as strings, and binary/nested types are refused by name.
+  Dates and times are rendered with C++20 `<chrono>` arithmetic and `snprintf`
+  (libstdc++ 11 in the builder has no chrono formatters).
+- **Prepare issues no request; GetParameterSchema does** — via
+  `execution_mode=describe_parameters`, without the transaction session parameters
+  so it never spends a transaction step.
+- **Nothing about a statement is cached across executions** — DDL can change a
+  placeholder's type without changing the query text, and there is no invalidation
+  event.
+- **A statement option a driver manager may leave stale must only add behaviour** —
+  e.g. `bind_by_name`: positional `$N` names are always sent, and `true` only adds
+  name aliases.
 
-`ADBC_INGEST_OPTION_MODE` (append / create / replace / create_append) and the
-catalog/schema target options are honoured: the create-style modes synthesise
-`CREATE TABLE` DDL from the bound Arrow schema, including nested
-`STRUCT`/`ARRAY` columns. `ADBC_INGEST_OPTION_TEMPORARY` is rejected with
-`ADBC_STATUS_NOT_IMPLEMENTED` — Firebolt has no session-temporary tables. Both
-the high-level `adbc_driver_manager.dbapi.Cursor.adbc_ingest()` and the
-low-level `bind_stream` + `execute_update` path land data in the target table
-(`tests/integration/tests/ingest/`, `ingest_low_level/`, `struct_type/`;
-`dml/test.py` covers INSERT-via-SQL).
+### FB2 SaaS (Legacy) mode
 
-Query parameters use Firebolt's positional `$1`, `$2`, … placeholders — not `?` or
-`%s` — carried in the `query_parameters` query setting. `StatementGetParameterSchema`
-reports the types the server infers via `execution_mode=describe_parameters`
-(`tests/integration/tests/query_params/`, `prepared_statements/`).
+Support for Firebolt 2.0 SaaS engines (v5+): service-account credentials plus
+`firebolt.account`/`engine`, exchanged for a token and resolved to an engine URL
+through the 2.0 control plane. All of it lives in `src/fb2/` under
+`firebolt::adbc::fb2` with a `// FB2 SaaS (Legacy) mode` banner. The main code holds
+one optional `std::shared_ptr<Fb2LegacyMode>` (null on the Core path) and calls it
+only at sites marked `FB2 SaaS (Legacy) mode hook`: option claim, `DatabaseInit`, the
+bearer token and the one 401 retry, and the response hook. Always built — no switch.
+Do not add FB2 behaviour outside the directory; add a hook. User docs for it live in
+`docs/fb2-saas.md`.
 
 ## HTTP Protocol
 
-- **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with URL-encoded
-  SQL body. Response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
-- **INSERT with bind data**: `POST {url}` as `multipart/form-data` — one `sql` part
-  referencing `upload://data.arrow`, one `data.arrow` part with Arrow IPC bytes.
-- **Session state**: updated via `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters`
-  / `Firebolt-Reset-Session` response headers (see `src/HttpClient.cpp`). Applied only on a
-  successful response — a 4xx/5xx body may come from a proxy or an attacker.
+- **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with the SQL
+  as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
+- **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
+  `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
+- **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /
+  `Firebolt-Reset-Session` response headers, applied only on a successful response.
 
-## Authentication: where this driver stands
+## Authentication (Firebolt Core)
 
-**Do not infer Firebolt's auth model from this driver's options, and do not carry over
-the Firebolt SaaS 2.0 model.** There are no service accounts, no `account_name`, no
-`api_endpoint`, and no control-plane engine resolution; those are explicitly legacy.
+Don't model Core auth on this driver's options or on Firebolt 2.0 SaaS — service
+accounts, `account_name` and control-plane engine resolution belong to FB2 mode only.
+The authoritative spec is packdb's `specs/sdk-authentication.md`: discovery via
+`GET <host>/.well-known/firebolt`, then OAuth 2.0 `client_credentials` with an RFC
+8707 `resource`; token precedence `FIREBOLT_TOKEN` > connection credentials >
+`firebolt token <host>`; transport via `ssl_mode` (default `verify-full`).
 
-The authoritative specs live in the packdb repo, and `specs/sdk-authentication.md` names
-ADBC directly. In short: a client discovers everything from
-`GET <host>/.well-known/firebolt` (`instance.auth` is `null` for auth-disabled, else it
-carries `oauth.protectedResource` plus `authorizationServers[]` and an optional
-`preferredAuthorizationServer`), then runs OAuth 2.0 `client_credentials` against the
-selected server's `token_endpoint` with `username`→`client_id`, `password`→`client_secret`
-and the RFC 8707 `resource` bound to the instance. Token precedence is `FIREBOLT_TOKEN`
-(one-shot, never cached) > connection credentials > optionally `firebolt token <host>`.
-Transport is a separate `ssl_mode` parameter defaulting to `verify-full`.
-
-This driver implements **none** of that yet: no discovery, no `client_credentials`, no
-`FIREBOLT_TOKEN`, `ssl_mode` only inside a `firebolt://` URI (`verify-full`/`disable`; TLS ships, always verified), and canonical parameter
-names (`host`, `database`, `query_timeout`, … per
-`specs/schemas/connection-parameters.v1.json`) not yet adopted. `docs/authentication.md`
-documents the gap for users; the rename, when it happens, replaces the current
-`firebolt.*` keys outright rather than aliasing them — nothing external consumes
-them yet.
+The driver implements none of that yet — only auth-disabled engines and a raw
+`firebolt.token`. The canonical parameter names
+(`specs/schemas/connection-parameters.v1.json`) are not adopted yet either; when they
+are, they replace the `firebolt.*` keys outright rather than aliasing them.
+`docs/authentication.md` documents the gap for users.
