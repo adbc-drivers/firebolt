@@ -29,7 +29,7 @@ installed on the server.
 | | |
 |---|---|
 | **Connections** | `http://` and `https://` (always certificate-verified) |
-| **Authentication** | **Firebolt SaaS:** fully supported, with a service account ([docs/fb2-saas.md](docs/fb2-saas.md)). **Firebolt Core:** authentication disabled, or a bearer token you already have ([docs/authentication.md](docs/authentication.md)). |
+| **Authentication** | **Firebolt SaaS:** supported for engines v5 and later only, with a service account ([docs/fb2-saas.md](docs/fb2-saas.md)). **Firebolt Core:** authentication disabled, or a bearer token you already have ([docs/authentication.md](docs/authentication.md)). |
 | **Platforms** | Linux x86_64/aarch64 (glibc 2.28+), macOS arm64, Windows x86_64 |
 | **ADBC** | The ADBC 1.0.0 API (see [Feature & Type Support](#feature--type-support)) |
 
@@ -48,7 +48,7 @@ dbc install firebolt --pre
 
 ```bash
 docker run -d --name firebolt -p 3473:3473 ghcr.io/firebolt-db/engine:5.0.0-pre.0.20260927210425.e91cd5bd17f8
-curl -fsS http://localhost:3473/ping && echo ok   # wait until this prints "ok"
+until curl -fs http://localhost:3473/ping >/dev/null; do sleep 1; done; echo ok
 ```
 
 It starts with authentication disabled, so no credentials are needed.
@@ -104,10 +104,13 @@ table = pa.table(
     {
         "id": pa.array([1, 2], pa.int32()),
         "tags": pa.array([["a", "b"], ["c"]], pa.list_(pa.string())),
+        "meta": pa.array([{"k": 1}, {"k": 2}], pa.struct([("k", pa.int32())])),
     }
 )
 
-with dbapi.connect(driver="firebolt", db_kwargs={"uri": URI}, autocommit=True) as conn:
+with dbapi.connect(
+    driver="firebolt", db_kwargs={"uri": "http://localhost:3473"}, autocommit=True
+) as conn:
     with conn.cursor() as cur:
         # mode: create, append, create_append or replace
         cur.adbc_ingest("events", table, mode="replace")
@@ -163,7 +166,7 @@ Set these in `db_kwargs`:
 
 | Key | Meaning |
 |-----|---------|
-| `uri` | **Required.** The engine endpoint, e.g. `http://localhost:3473`, or `firebolt://host[:port]/[database]` ([details](OPTIONS.md#firebolt-uris)) |
+| `uri` | **Required.** The engine endpoint, e.g. `http://localhost:3473`, or `firebolt://host[:port]/[database]`, which uses TLS unless you add `?ssl_mode=disable` ([details](OPTIONS.md#firebolt-uris)) |
 | `firebolt.database` | Database to use |
 | `firebolt.token` | Bearer token; omit when authentication is disabled |
 | `firebolt.timeout_sec` | Request timeout in seconds; `0` (default) means none |
@@ -256,7 +259,8 @@ query parameters.
 | `fixed_size_list<T>` | `ARRAY(T)` | ❌ <sup>[15](#fn15)</sup> | ❌ <sup>[5](#fn5)</sup> |
 | `struct<…>` | `STRUCT(…)` | ✅ <sup>[3](#fn3)</sup> | ❌ <sup>[5](#fn5)</sup> |
 | `dictionary<T>` | (value type) | ❌ <sup>[11](#fn11)</sup> | ✅ decoded as `T` |
-| `map`, `null`, `duration`, `interval` | (no mapping) | ❌ | ❌ |
+| `null` | (no mapping) | ❌ | ✅ as `NULL` |
+| `map`, `duration`, `interval` | (no mapping) | ❌ | ❌ |
 
 A `NULL` value binds as SQL `NULL` whatever its Arrow type.
 
@@ -268,7 +272,7 @@ A `NULL` value binds as SQL `NULL` whatever its Arrow type.
 4. <a id="fn4"></a>Prepare is local; `adbc_prepare()` asks the server for parameter types without running the query ([details](OPTIONS.md#parameter-metadata)).
 5. <a id="fn5"></a>Binary and nested values cannot be bound as parameters; ingest them instead. Named parameters are always `TEXT` ([details](OPTIONS.md#query-parameters)).
 6. <a id="fn6"></a>Firebolt does not report affected rows; use `SELECT count(*)`.
-7. <a id="fn7"></a>Typed option setters, `Cancel`, `ExecuteSchema`, `GetStatistics`, `ErrorGetDetail`.
+7. <a id="fn7"></a>Typed option setters, `Cancel`, `ExecuteSchema`, `GetStatistics`, `ErrorGetDetail`. `GetInfo` still reports ADBC 1.1.0.
 8. <a id="fn8"></a>WKB bytes, without GeoArrow metadata.
 9. <a id="fn9"></a>Values above the signed 64-bit maximum are rejected.
 10. <a id="fn10"></a>`NaN` and infinities are rejected.

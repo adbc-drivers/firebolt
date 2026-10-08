@@ -56,10 +56,10 @@ reference), `docs/authentication.md`, `docs/fb2-saas.md`.
 ## Build and test
 
 ```bash
+git submodule update --init --recursive              # once, before any build
 pixi run make                                        # release build → build/libadbc_driver_firebolt.*
 
 # Debug build with C++ unit tests (adjust platform/arch):
-git submodule update --init --recursive
 ./ci/scripts/build.sh test macos arm64
 ./ci/scripts/test.sh macos arm64
 
@@ -180,7 +180,8 @@ one optional `std::shared_ptr<Fb2LegacyMode>` (null on the Core path) and calls 
 only at sites marked `FB2 SaaS (Legacy) mode hook`: option claim, `DatabaseInit`, the
 bearer token and the one 401 retry, and the response hook. Always built — no switch.
 Do not add FB2 behaviour outside the directory; add a hook. User docs for it live in
-`docs/fb2-saas.md`.
+`docs/fb2-saas.md`; the README mentions it only in the "Supported today" table
+(SaaS, v5+ engines only) and under "Other environments".
 
 ## HTTP Protocol
 
