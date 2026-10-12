@@ -22,6 +22,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
 ### Added
 
 - **Native platform builds.** The generated build pipeline now produces and tests
@@ -128,5 +130,6 @@ See [README.md](README.md#supported-today). In short: plaintext `http://` only
 pre-obtained bearer token, no discovery-based OAuth, Linux only, and no
 parameterized queries.
 
-[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/adbc-drivers/firebolt/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/adbc-drivers/firebolt/releases/tag/v0.1.1

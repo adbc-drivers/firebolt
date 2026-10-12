@@ -18,7 +18,7 @@ cmake_minimum_required(VERSION 3.20)
 # This is the single source of truth: it feeds the shared library soname and
 # the ADBC_INFO_DRIVER_VERSION string via src/Version.h.in.  Bump it in the
 # same commit as the release tag.
-project(adbc_driver_firebolt VERSION 0.1.1 LANGUAGES C CXX)
+project(adbc_driver_firebolt VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
