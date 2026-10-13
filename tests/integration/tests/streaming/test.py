@@ -93,7 +93,9 @@ def test_first_batch_arrives_before_the_response_ends(mock_server, conn_to_mock)
         elapsed = time.monotonic() - started
 
         assert _values(first) == [1, 2]
-        assert elapsed < 3, f"the first batch took {elapsed:.1f}s: the response was buffered"
+        assert elapsed < 3, (
+            f"the first batch took {elapsed:.1f}s: the response was buffered"
+        )
         assert _values(reader.read_next_batch()) == [3]
         with pytest.raises(StopIteration):
             reader.read_next_batch()
@@ -124,9 +126,11 @@ def test_error_after_the_200_is_reported_by_a_buffered_read(mock_server, conn_to
 def test_http_error_fails_execute(mock_server, conn_to_mock):
     mock_server.queue(status=400, body=b"syntax error at line 1")
 
-    with _statement(conn_to_mock) as stmt:
-        with pytest.raises(adbc_driver_manager.ProgrammingError, match="syntax error"):
-            _execute(stmt, "SELEC 1")
+    with (
+        _statement(conn_to_mock) as stmt,
+        pytest.raises(adbc_driver_manager.ProgrammingError, match="syntax error"),
+    ):
+        _execute(stmt, "SELEC 1")
 
 
 def test_session_update_applies_before_the_stream_is_read(mock_server, conn_to_mock):
@@ -191,18 +195,29 @@ def test_timeout_bounds_the_wait_for_the_server(mock_server, connect_to_mock):
     connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
     mock_server.queue(chunks=[3.0, _schema(), _batch(1), END_OF_STREAM])
 
-    with _statement(connection) as stmt:
-        with pytest.raises(
+    with (
+        _statement(connection) as stmt,
+        pytest.raises(
             adbc_driver_manager.OperationalError, match="firebolt.timeout_sec"
-        ):
-            _execute(stmt)
+        ),
+    ):
+        _execute(stmt)
 
 
 def test_timeout_does_not_bound_a_steady_stream(mock_server, connect_to_mock):
     """No pause is longer than the timeout, though the whole response is."""
     connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
     mock_server.queue(
-        chunks=[_schema(), _batch(1), 0.6, _batch(2), 0.6, _batch(3), 0.6, END_OF_STREAM]
+        chunks=[
+            _schema(),
+            _batch(1),
+            0.6,
+            _batch(2),
+            0.6,
+            _batch(3),
+            0.6,
+            END_OF_STREAM,
+        ]
     )
 
     with _statement(connection) as stmt:
