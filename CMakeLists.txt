@@ -287,8 +287,8 @@ add_library(adbc_driver_firebolt SHARED
     src/FireboltAdbcDriver.cpp
     src/FireboltAdbcMetadata.cpp
     src/HttpClient.cpp
-    src/HttpResponseStream.cpp
-    src/CurlHandlePool.cpp
+    src/IO/ReadBufferFromHttpResponse.cpp
+    src/CurlHandles.cpp
     src/HttpHeaderParse.cpp
     src/ArrowIpcStream.cpp
     src/IngestSqlBuilder.cpp

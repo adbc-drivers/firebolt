@@ -19,6 +19,7 @@
 #include "fb2/Fb2LegacyMode.h"
 
 #include <cstring>
+#include <stdexcept>
 
 #include <curl/curl.h>
 
@@ -106,7 +107,15 @@ void HttpClient::parseResponseHeaders(CURL * handle, HttpResponse & resp) const
     }
 }
 
-StartedResponse HttpClient::send(PooledCurl handles, const char * content_type, long idle_timeout_sec)
+CURL * HttpClient::startRequest()
+{
+    if (resultStreamOpen())
+        throw std::logic_error("A query result stream is still open on this connection");
+    curl_easy_reset(handles->easy);
+    return handles->easy;
+}
+
+StartedResponse HttpClient::send(const char * content_type, long idle_timeout_sec)
 {
     // The headers are rebuilt per attempt: a retry after re-authentication must
     // carry the new token.
@@ -119,7 +128,7 @@ StartedResponse HttpClient::send(PooledCurl handles, const char * content_type, 
             headers = curl_slist_append(headers, content_type);
 
         StartedResponse started;
-        started.body = std::make_unique<HttpResponseStream>(std::move(handles), headers, idle_timeout_sec);
+        started.body = std::make_unique<ReadBufferFromHttpResponse>(handles, headers, idle_timeout_sec);
         HttpResponse & resp = started.response;
         resp.curl_code = started.body->waitForResponse(resp.error_message);
         curl_easy_getinfo(started.body->handle(), CURLINFO_RESPONSE_CODE, &resp.http_code);
@@ -135,7 +144,7 @@ StartedResponse HttpClient::send(PooledCurl handles, const char * content_type, 
         // Safe for any statement: a 401 is decided before the statement runs.
         if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate(token))
         {
-            handles = started.body->detach();
+            started.body->releaseHandles();
             continue;
         }
 
@@ -156,8 +165,7 @@ HttpResponse HttpClient::readWholeResponse(StartedResponse started)
 
 StartedResponse HttpClient::startQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
 {
-    PooledCurl handles = handle_pool->acquire();
-    CURL * handle = handles->easy;
+    CURL * handle = startRequest();
 
     std::string url = buildUrl(handle, session_params);
     // Append output_format for SELECT queries
@@ -173,7 +181,7 @@ StartedResponse HttpClient::startQuery(const std::string & sql, const std::unord
 
     // Content-Type: text/plain so the server knows body is raw SQL.  The timeout
     // bounds each wait for the server, not the time the caller takes to read.
-    return send(std::move(handles), "Content-Type: text/plain; charset=utf-8", fb_conn.db->timeout_sec);
+    return send("Content-Type: text/plain; charset=utf-8", fb_conn.db->timeout_sec);
 }
 
 HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
@@ -186,8 +194,7 @@ HttpResponse HttpClient::executeInsert(
     const std::vector<uint8_t> & arrow_ipc_bytes,
     const std::unordered_map<std::string, std::string> & session_params)
 {
-    PooledCurl handles = handle_pool->acquire();
-    CURL * handle = handles->easy;
+    CURL * handle = startRequest();
 
     std::string url = buildUrl(handle, session_params);
     curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
@@ -213,7 +220,7 @@ HttpResponse HttpClient::executeInsert(
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
     // CURLOPT_TIMEOUT bounds the whole upload, so no wait of its own.
-    HttpResponse resp = readWholeResponse(send(std::move(handles), nullptr, 0));
+    HttpResponse resp = readWholeResponse(send(nullptr, 0));
     curl_mime_free(mime);
     return resp;
 }

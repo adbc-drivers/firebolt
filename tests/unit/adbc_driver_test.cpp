@@ -1012,10 +1012,10 @@ constexpr size_t END_OF_STREAM_SIZE = 8; // 0xFFFFFFFF continuation + 0 length
 
 // A response body that arrives a few bytes at a time and, optionally, fails
 // once its bytes run out — the way a transfer that times out does.
-class ChunkedBodySource : public firebolt::adbc::ResponseBodySource
+class ReadBufferFromChunks : public firebolt::adbc::IReadBuffer
 {
 public:
-    ChunkedBodySource(std::vector<uint8_t> bytes, size_t chunk_size, firebolt::adbc::Status failure_at_end = {})
+    ReadBufferFromChunks(std::vector<uint8_t> bytes, size_t chunk_size, firebolt::adbc::Status failure_at_end = {})
         : bytes(std::move(bytes)), chunk_size(chunk_size), failure_at_end(std::move(failure_at_end))
     {
     }
@@ -1061,7 +1061,7 @@ TEST(ArrowIpcStreamTest, BodyArrivingInPiecesRoundTrips)
     std::vector<uint8_t> bytes = EncodeInt32Batches({{1, 2, 3}, {4, 5}});
 
     nanoarrow::UniqueArrayStream stream;
-    std::string err = firebolt::adbc::ExportIpcBodyAsArrowStream(std::make_unique<ChunkedBodySource>(bytes, 3), stream.get());
+    std::string err = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 3), stream.get());
     ASSERT_TRUE(err.empty()) << err;
 
     nanoarrow::UniqueSchema schema;
@@ -1087,7 +1087,7 @@ TEST(ArrowIpcStreamTest, ErrorTextAfterTheLastMessageIsReported)
     bytes.insert(bytes.end(), trailer.begin(), trailer.end());
 
     nanoarrow::UniqueArrayStream stream;
-    std::string err = firebolt::adbc::ExportIpcBodyAsArrowStream(std::make_unique<ChunkedBodySource>(bytes, 5), stream.get());
+    std::string err = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 5), stream.get());
     ASSERT_TRUE(err.empty()) << err;
 
     EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{1, 2}));
@@ -1105,7 +1105,7 @@ TEST(ArrowIpcStreamTest, ErrorTextInsteadOfTheSchemaFailsTheExport)
     std::vector<uint8_t> bytes(text.begin(), text.end());
 
     nanoarrow::UniqueArrayStream stream;
-    std::string err = firebolt::adbc::ExportIpcBodyAsArrowStream(std::make_unique<ChunkedBodySource>(bytes, 64), stream.get());
+    std::string err = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 64), stream.get());
     EXPECT_NE(err.find("Query failed"), std::string::npos) << err;
 }
 
@@ -1115,8 +1115,8 @@ TEST(ArrowIpcStreamTest, BodyThatFailsMidwayIsReported)
     bytes.resize(bytes.size() - END_OF_STREAM_SIZE - 4); // cut inside the last batch
 
     nanoarrow::UniqueArrayStream stream;
-    std::string err = firebolt::adbc::ExportIpcBodyAsArrowStream(
-        std::make_unique<ChunkedBodySource>(bytes, 7, firebolt::adbc::Status{ADBC_STATUS_TIMEOUT, "No data from the server for 1 s"}),
+    std::string err = firebolt::adbc::ExportIpcReadBufferAsArrowStream(
+        std::make_unique<ReadBufferFromChunks>(bytes, 7, firebolt::adbc::Status{ADBC_STATUS_TIMEOUT, "No data from the server for 1 s"}),
         stream.get());
     ASSERT_TRUE(err.empty()) << err;
 
@@ -1132,7 +1132,7 @@ TEST(ArrowIpcStreamTest, EmptyBodyInPiecesProducesEmptyStream)
 {
     nanoarrow::UniqueArrayStream stream;
     std::string err
-        = firebolt::adbc::ExportIpcBodyAsArrowStream(std::make_unique<ChunkedBodySource>(std::vector<uint8_t>{}, 4), stream.get());
+        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(std::vector<uint8_t>{}, 4), stream.get());
     ASSERT_TRUE(err.empty()) << err;
 
     nanoarrow::UniqueSchema schema;

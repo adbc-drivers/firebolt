@@ -22,8 +22,8 @@
 
 #include <curl/curl.h>
 
-#include "CurlHandlePool.h"
-#include "HttpResponseStream.h"
+#include "CurlHandles.h"
+#include "IO/ReadBufferFromHttpResponse.h"
 
 namespace firebolt::adbc
 {
@@ -90,7 +90,7 @@ inline bool applySessionUpdatesIfSuccess(std::unordered_map<std::string, std::st
 struct StartedResponse
 {
     HttpResponse response;
-    std::unique_ptr<HttpResponseStream> body;
+    std::unique_ptr<ReadBufferFromHttpResponse> body;
 };
 
 class HttpClient
@@ -104,7 +104,9 @@ public:
     HttpClient & operator=(const HttpClient &) = delete;
 
     // SELECT / DDL, returning once the response starts.  The body is read as the
-    // caller asks for it, and may outlive this client and its connection.
+    // caller asks for it, and may outlive this client and its connection.  Until
+    // it is read to the end or destroyed, resultStreamOpen() is true and no other
+    // request may be sent.
     StartedResponse startQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params);
 
     // SELECT / DDL, with the whole body read into the response.
@@ -118,16 +120,22 @@ public:
         const std::vector<uint8_t> & arrow_ipc_bytes,
         const std::unordered_map<std::string, std::string> & session_params);
 
+    // Whether a response from startQuery still holds the connection's handles.
+    bool resultStreamOpen() const { return handles->in_use; }
+
 private:
-    std::shared_ptr<CurlHandlePool> handle_pool = std::make_shared<CurlHandlePool>();
+    std::shared_ptr<CurlHandles> handles = std::make_shared<CurlHandles>();
     const FireboltConnection & fb_conn;
 
     std::string buildUrl(CURL * handle, const std::unordered_map<std::string, std::string> & session_params) const;
     static curl_slist * buildAuthHeader(const std::string & token);
     void applyTlsOptions(CURL * handle) const;
-    // Sends the request already configured on `handles` and waits for its response
+    // The easy handle, reset for a new request.  Callers check resultStreamOpen()
+    // first; this throws if they did not.
+    CURL * startRequest();
+    // Sends the request configured on the easy handle and waits for its response
     // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
-    StartedResponse send(PooledCurl handles, const char * content_type, long idle_timeout_sec);
+    StartedResponse send(const char * content_type, long idle_timeout_sec);
     void parseResponseHeaders(CURL * handle, HttpResponse & resp) const;
     // Reads the rest of a started response into its `body`.
     static HttpResponse readWholeResponse(StartedResponse started);

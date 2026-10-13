@@ -118,6 +118,30 @@ trusted (`src/HttpClient.cpp`, `applySessionUpdatesIfSuccess`).
 | `Firebolt-Remove-Parameters` | Drop the listed keys. |
 | `Firebolt-Reset-Session` | Clear all session parameters. |
 
+### One result stream at a time
+
+A query's result is streamed: `ExecuteQuery` returns as soon as the server starts
+answering, and each record batch is downloaded when you ask for it. Until the stream
+is **read to the end** (past its last batch) or **released**, it still uses the
+connection, and any other call on that connection that sends a request fails with
+`ADBC_STATUS_INVALID_STATE` without sending anything. Such calls are another
+`ExecuteQuery`/`ExecuteUpdate` (on any statement), `Commit`, `Rollback`, turning
+autocommit back on, `GetParameterSchema`, `GetInfo`, `GetObjects`, `GetTableSchema`,
+and reading `adbc.connection.catalog` / `adbc.connection.db_schema`.
+
+To run something else first, finish or close the result. In Python's dbapi:
+
+- `fetchall()`, `fetch_arrow_table()` and `fetch_df()` read to the end, which frees
+  the connection.
+- `fetchone()`/`fetchmany()` usually stop before the end, so the result is still
+  open: `cur.fetchone()` followed by `conn.commit()` fails. Close the cursor (or
+  run the next query on the same cursor) first.
+- A new `execute()` on the **same cursor** drops the previous result, which CPython
+  releases at once — unless you still hold the reader from `fetch_record_batch()`;
+  close that reader yourself.
+
+To read two results at once, use two connections.
+
 ## Statement options
 
 Set on `AdbcStatement`.

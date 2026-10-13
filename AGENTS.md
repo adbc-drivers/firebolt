@@ -39,6 +39,7 @@ material — generate test certificates at run time.
 ├── src/                              # the driver
 │   ├── FireboltAdbcDriver.cpp        # ADBC entry points: database, connection, statement
 │   ├── HttpClient.*                  # libcurl wrapper for Firebolt's HTTP query protocol
+│   ├── IO/                           # IReadBuffer and its ReadBufferFrom* implementations
 │   └── fb2/                          # FB2 SaaS (Legacy) mode, isolated behind hooks
 ├── tests/
 │   ├── unit/                         # GoogleTest, no server needed
@@ -189,14 +190,16 @@ under "Other environments".
 - **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with the SQL
   as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
 - **Results stream**: ExecuteQuery returns once the response starts (status and
-  headers known); `HttpResponseStream` pumps its own `curl_multi` handle only while a
+  headers known); `ReadBufferFromHttpResponse` pumps its own `curl_multi` handle only while a
   reader waits for bytes, so nothing is buffered beyond a socket read. A query that
   fails after its 200 ends the body with error text in place of the next IPC message;
   it is told apart by the missing `0xFFFFFFFF` continuation marker. `timeout_sec`
   bounds each wait for the server, not the request.
-- **Handles**: a connection's requests reuse one pooled easy+multi pair (and its
-  HTTP connection); a request made while a result stream holds it gets a fresh pair,
-  so an open stream never blocks the connection.
+- **One request at a time**: a connection has one easy+multi pair (`CurlHandles`),
+  which keeps its HTTP connection alive. An open result stream holds it until its
+  transfer ends (reading past the last batch drains the body) or it is released;
+  meanwhile every entry point that sends a request returns `ADBC_STATUS_INVALID_STATE`
+  via `RejectWhileResultStreamOpen`. Documented in OPTIONS.md.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /

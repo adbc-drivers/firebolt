@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "ArrowIpcStream.h"
+#include "IO/ReadBufferFromMemory.h"
 
 #include <algorithm>
 #include <cctype>
@@ -181,28 +182,10 @@ namespace
     // How much of that error text is kept for the message.
     constexpr size_t MAX_ERROR_TEXT_SIZE = 64 * 1024;
 
-    class BufferedBodySource : public ResponseBodySource
-    {
-    public:
-        explicit BufferedBodySource(std::vector<uint8_t> bytes) : bytes(std::move(bytes)) { }
-
-        Status read(uint8_t * buffer, size_t size, size_t & bytes_read) override
-        {
-            bytes_read = std::min(size, bytes.size() - offset);
-            memcpy(buffer, bytes.data() + offset, bytes_read);
-            offset += bytes_read;
-            return {};
-        }
-
-    private:
-        std::vector<uint8_t> bytes;
-        size_t offset = 0;
-    };
-
     // The body behind nanoarrow's IPC reader, owned by its ArrowIpcInputStream.
-    struct BodyReader
+    struct IpcInput
     {
-        std::unique_ptr<ResponseBodySource> body;
+        std::unique_ptr<IReadBuffer> body;
         // Read ahead to tell an empty body from one that starts with a schema.
         std::vector<uint8_t> lookahead;
         // Set by the stream before each message: the next read starts one.
@@ -230,8 +213,18 @@ namespace
         }
     };
 
+    // Read and drop whatever is left of the body.
+    void skipToEnd(IReadBuffer & body)
+    {
+        uint8_t chunk[4096];
+        size_t received = 0;
+        while (body.read(chunk, sizeof(chunk), received).ok() && received > 0)
+        {
+        }
+    }
+
     // The error text that begins with `start`: it and the rest of the body.
-    std::string readErrorText(ResponseBodySource & body, const uint8_t * start, size_t size)
+    std::string readErrorText(IReadBuffer & body, const uint8_t * start, size_t size)
     {
         std::string text(reinterpret_cast<const char *>(start), size);
         uint8_t chunk[4096];
@@ -243,9 +236,9 @@ namespace
         return text;
     }
 
-    ArrowErrorCode bodyRead(ArrowIpcInputStream * stream, uint8_t * buffer, int64_t size, int64_t * size_read, ArrowError * error)
+    ArrowErrorCode ipcInputRead(ArrowIpcInputStream * stream, uint8_t * buffer, int64_t size, int64_t * size_read, ArrowError * error)
     {
-        auto * reader = static_cast<BodyReader *>(stream->private_data);
+        auto * reader = static_cast<IpcInput *>(stream->private_data);
         size_t bytes_read = 0;
         Status status = reader->readFully(buffer, static_cast<size_t>(size), bytes_read);
         if (!status.ok())
@@ -265,18 +258,18 @@ namespace
         return NANOARROW_OK;
     }
 
-    void bodyRelease(ArrowIpcInputStream * stream)
+    void ipcInputRelease(ArrowIpcInputStream * stream)
     {
-        delete static_cast<BodyReader *>(stream->private_data);
+        delete static_cast<IpcInput *>(stream->private_data);
         stream->private_data = nullptr;
         stream->release = nullptr;
     }
 
     // nanoarrow's IPC reader, with the body's errors in place of its own.
-    struct StreamedBodyState
+    struct IpcReaderState
     {
         nanoarrow::UniqueArrayStream ipc_reader; // owns the input stream, and so `body`
-        BodyReader * body = nullptr;
+        IpcInput * body = nullptr;
         nanoarrow::UniqueSchema schema;
         std::string last_error;
 
@@ -289,41 +282,47 @@ namespace
         }
     };
 
-    int streamedGetSchema(ArrowArrayStream * stream, ArrowSchema * out)
+    int ipcReaderGetSchema(ArrowArrayStream * stream, ArrowSchema * out)
     {
-        auto * state = static_cast<StreamedBodyState *>(stream->private_data);
+        auto * state = static_cast<IpcReaderState *>(stream->private_data);
         return ArrowSchemaDeepCopy(state->schema.get(), out);
     }
 
-    int streamedGetNext(ArrowArrayStream * stream, ArrowArray * out)
+    int ipcReaderGetNext(ArrowArrayStream * stream, ArrowArray * out)
     {
-        auto * state = static_cast<StreamedBodyState *>(stream->private_data);
+        auto * state = static_cast<IpcReaderState *>(stream->private_data);
         if (!state->body->error.empty())
             return state->fail(EIO);
         state->body->at_message_start = true;
         const int rc = state->ipc_reader->get_next(state->ipc_reader.get(), out);
-        return rc == 0 ? 0 : state->fail(rc);
+        if (rc != 0)
+            return state->fail(rc);
+        // After the end-of-stream marker, read the response to its end: that ends
+        // the transfer, which frees the connection for its next request.
+        if (!out->release)
+            skipToEnd(*state->body->body);
+        return 0;
     }
 
-    const char * streamedGetLastError(ArrowArrayStream * stream)
+    const char * ipcReaderGetLastError(ArrowArrayStream * stream)
     {
-        auto * state = static_cast<StreamedBodyState *>(stream->private_data);
+        auto * state = static_cast<IpcReaderState *>(stream->private_data);
         return state->last_error.empty() ? nullptr : state->last_error.c_str();
     }
 
-    void streamedRelease(ArrowArrayStream * stream)
+    void ipcReaderRelease(ArrowArrayStream * stream)
     {
         if (!stream || !stream->private_data)
             return;
-        delete static_cast<StreamedBodyState *>(stream->private_data);
+        delete static_cast<IpcReaderState *>(stream->private_data);
         memset(stream, 0, sizeof(*stream));
     }
 
 } // namespace
 
-std::string ExportIpcBodyAsArrowStream(std::unique_ptr<ResponseBodySource> body, ArrowArrayStream * out)
+std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, ArrowArrayStream * out)
 {
-    auto reader = std::make_unique<BodyReader>();
+    auto reader = std::make_unique<IpcInput>();
     reader->body = std::move(body);
 
     // DDL and zero-row results have no bytes at all, not even a schema.
@@ -335,9 +334,9 @@ std::string ExportIpcBodyAsArrowStream(std::unique_ptr<ResponseBodySource> body,
     if (received == 0)
         return ExportEmptyStream(out);
 
-    auto state = std::make_unique<StreamedBodyState>();
+    auto state = std::make_unique<IpcReaderState>();
     state->body = reader.get();
-    ArrowIpcInputStream input{bodyRead, bodyRelease, reader.release()};
+    ArrowIpcInputStream input{ipcInputRead, ipcInputRelease, reader.release()};
     if (ArrowIpcArrayStreamReaderInit(state->ipc_reader.get(), &input, nullptr) != 0)
     {
         if (input.release)
@@ -353,17 +352,17 @@ std::string ExportIpcBodyAsArrowStream(std::unique_ptr<ResponseBodySource> body,
         return state->last_error;
     }
 
-    out->get_schema = streamedGetSchema;
-    out->get_next = streamedGetNext;
-    out->get_last_error = streamedGetLastError;
-    out->release = streamedRelease;
+    out->get_schema = ipcReaderGetSchema;
+    out->get_next = ipcReaderGetNext;
+    out->get_last_error = ipcReaderGetLastError;
+    out->release = ipcReaderRelease;
     out->private_data = state.release();
     return {};
 }
 
 std::string ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArrayStream * out)
 {
-    return ExportIpcBodyAsArrowStream(std::make_unique<BufferedBodySource>(std::move(ipc_bytes)), out);
+    return ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromMemory>(std::move(ipc_bytes)), out);
 }
 
 std::string ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ipc_responses, ArrowArrayStream * out)

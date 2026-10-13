@@ -133,46 +133,53 @@ def test_http_error_fails_execute(mock_server, conn_to_mock):
         _execute(stmt, "SELEC 1")
 
 
-def test_session_update_applies_before_the_stream_is_read(mock_server, conn_to_mock):
-    gate = threading.Event()
+def test_session_update_from_a_streamed_response(mock_server, conn_to_mock):
     mock_server.queue(
         headers=[("Firebolt-Update-Parameters", "database=streamed_db")],
-        chunks=[_schema(), gate, _batch(1), END_OF_STREAM],
+        chunks=[_schema(), _batch(1), END_OF_STREAM],
     )
     with _statement(conn_to_mock) as stmt, _statement(conn_to_mock) as other:
-        try:
-            reader = _execute(stmt, "USE DATABASE streamed_db")
-            # Another request while the first response is still open.
-            _execute(other, "SELECT 1").read_all()
-            assert _query_params(mock_server.captured[1].path, "database") == [
-                "streamed_db"
-            ]
-        finally:
-            gate.set()
-        assert _values(reader.read_next_batch()) == [1]
+        reader = _execute(stmt, "USE DATABASE streamed_db")
+        assert reader.read_all().column(0).to_pylist() == [1]
+        _execute(other, "SELECT 1").read_all()
+    assert _query_params(mock_server.captured[1].path, "database") == ["streamed_db"]
 
 
-def test_requests_while_a_stream_is_open(mock_server, conn_to_mock):
-    """An open stream does not block the connection: other queries and a
-    transaction's COMMIT run alongside it, and it still finishes intact."""
+def test_requests_while_a_stream_is_open_are_refused(mock_server, conn_to_mock):
+    """A connection runs one request at a time, and an open result stream is one:
+    other queries and COMMIT fail with INVALID_STATE until it ends."""
     conn_to_mock.set_options(**{"adbc.connection.autocommit": "false"})
     gate = threading.Event()
     mock_server.queue()  # BEGIN
     mock_server.queue(chunks=[_schema(), _batch(1), gate, _batch(2), END_OF_STREAM])
-    mock_server.queue(chunks=[_schema(), _batch(7), END_OF_STREAM])
     with _statement(conn_to_mock) as stmt, _statement(conn_to_mock) as other:
         try:
             reader = _execute(stmt)
             assert _values(reader.read_next_batch()) == [1]
 
-            assert _execute(other).read_all().column(0).to_pylist() == [7]
-            conn_to_mock.commit()
-            assert mock_server.last_request.body == b"COMMIT"
+            with pytest.raises(adbc_driver_manager.ProgrammingError) as exc:
+                _execute(other)
+            assert (
+                exc.value.status_code
+                == adbc_driver_manager.AdbcStatusCode.INVALID_STATE
+            )
+            assert "result stream" in str(exc.value)
+            with pytest.raises(adbc_driver_manager.ProgrammingError):
+                conn_to_mock.commit()
         finally:
             gate.set()
         assert _values(reader.read_next_batch()) == [2]
-        with pytest.raises(StopIteration):
-            reader.read_next_batch()
+        assert len(mock_server.captured) == 2, "the refused requests were not sent"
+
+
+def test_a_stream_read_to_the_end_frees_the_connection(mock_server, conn_to_mock):
+    """Without the reader being released: reading past the last batch is enough."""
+    mock_server.queue(chunks=[_schema(), _batch(1), END_OF_STREAM])
+    mock_server.queue(chunks=[_schema(), _batch(2), END_OF_STREAM])
+    with _statement(conn_to_mock) as stmt, _statement(conn_to_mock) as other:
+        reader = _execute(stmt)
+        assert reader.read_all().column(0).to_pylist() == [1]
+        assert _execute(other).read_all().column(0).to_pylist() == [2]
 
 
 def test_releasing_an_unfinished_stream(mock_server, conn_to_mock):

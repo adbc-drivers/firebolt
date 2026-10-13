@@ -121,6 +121,10 @@ for batch in cur.fetch_record_batch():
     process(batch)
 ```
 
+Results are streamed, so a result you have not finished reading still occupies
+the connection. Other queries and commits on that connection fail until you read
+it to the end or close it ([details](OPTIONS.md#one-result-stream-at-a-time)).
+
 ### Load Arrow data into a table
 
 `adbc_ingest` uploads a whole Arrow table in one request and can create the
@@ -322,6 +326,7 @@ A `NULL` value binds as SQL `NULL` whatever its Arrow type.
 | `No CA certificate bundle found` / `SSL peer certificate … was not OK` | Install your OS's `ca-certificates`, or set `firebolt.ssl_certificate_path` to your CA's PEM file. |
 | `positional parameter $1, but it was not set` | Pass one value per `$N` placeholder; numbering starts at `$1`. |
 | `current transaction is aborted` | A statement failed inside a transaction; call `conn.rollback()`. |
+| `A query result stream is still open on this connection` | Read the previous result to the end or close it first, or use a second connection ([details](OPTIONS.md#one-result-stream-at-a-time)). |
 | `Unknown Firebolt database option` | Check the option name against [OPTIONS.md](OPTIONS.md). |
 
 ## Build from source

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 
-#include "HttpResponseStream.h"
+#include "ReadBufferFromHttpResponse.h"
 
 #include <algorithm>
 #include <chrono>
@@ -36,47 +36,50 @@ namespace
 
 } // namespace
 
-HttpResponseStream::HttpResponseStream(PooledCurl handles, curl_slist * request_headers, long idle_timeout_sec)
+ReadBufferFromHttpResponse::ReadBufferFromHttpResponse(
+    std::shared_ptr<CurlHandles> handles, curl_slist * request_headers, long idle_timeout_sec)
     : handles(std::move(handles)), request_headers(request_headers), idle_timeout_sec(idle_timeout_sec)
 {
     CURL * easy = this->handles->easy;
+    this->handles->in_use = true;
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, request_headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, onBodyBytes);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, this);
     if (curl_multi_add_handle(this->handles->multi, easy) != CURLM_OK)
     {
+        this->handles->in_use = false;
         curl_slist_free_all(request_headers);
         throw std::runtime_error("Failed to start an HTTP request");
     }
 }
 
-HttpResponseStream::~HttpResponseStream()
+ReadBufferFromHttpResponse::~ReadBufferFromHttpResponse()
 {
-    detach();
+    releaseHandles();
 }
 
-PooledCurl HttpResponseStream::detach()
+void ReadBufferFromHttpResponse::releaseHandles()
 {
-    if (handles)
-    {
-        // An unfinished transfer is aborted, and its connection closed.
-        curl_multi_remove_handle(handles->multi, handles->easy);
-        curl_easy_setopt(handles->easy, CURLOPT_HTTPHEADER, nullptr);
-    }
+    if (!holds_handles)
+        return;
+    holds_handles = false;
+    // An unfinished transfer is aborted, and its HTTP connection closed.
+    curl_multi_remove_handle(handles->multi, handles->easy);
+    curl_easy_setopt(handles->easy, CURLOPT_HTTPHEADER, nullptr);
     curl_slist_free_all(request_headers);
     request_headers = nullptr;
-    return std::move(handles);
+    handles->in_use = false;
 }
 
-size_t HttpResponseStream::onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata)
+size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata)
 {
-    auto * stream = static_cast<HttpResponseStream *>(userdata);
+    auto * stream = static_cast<ReadBufferFromHttpResponse *>(userdata);
     const size_t total = size * nmemb;
     stream->received.insert(stream->received.end(), ptr, ptr + total);
     return total;
 }
 
-CURLcode HttpResponseStream::receive(std::string & error_message)
+CURLcode ReadBufferFromHttpResponse::receive(std::string & error_message)
 {
     if (consumed == received.size())
     {
@@ -102,6 +105,10 @@ CURLcode HttpResponseStream::receive(std::string & error_message)
                 transfer_result = message->data.result;
             }
         }
+        // The rest of the body is in `received`: the connection is free again,
+        // though the caller may not have read it yet.
+        if (finished)
+            releaseHandles();
         if (finished || received.size() != already_received)
             break;
 
@@ -130,12 +137,12 @@ CURLcode HttpResponseStream::receive(std::string & error_message)
     return CURLE_OK;
 }
 
-CURLcode HttpResponseStream::waitForResponse(std::string & error_message)
+CURLcode ReadBufferFromHttpResponse::waitForResponse(std::string & error_message)
 {
     return receive(error_message);
 }
 
-CURLcode HttpResponseStream::readToEnd(std::vector<uint8_t> & body, std::string & error_message)
+CURLcode ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body, std::string & error_message)
 {
     for (;;)
     {
@@ -148,7 +155,7 @@ CURLcode HttpResponseStream::readToEnd(std::vector<uint8_t> & body, std::string 
     }
 }
 
-Status HttpResponseStream::read(uint8_t * buffer, size_t size, size_t & bytes_read)
+Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & bytes_read)
 {
     bytes_read = 0;
     if (consumed == received.size())

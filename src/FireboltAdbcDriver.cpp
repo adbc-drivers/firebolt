@@ -132,6 +132,19 @@ static void ApplySessionUpdates(FireboltConnection * conn, const HttpResponse & 
         conn->url = resp.new_endpoint;
 }
 
+// A connection sends one request at a time, and a result stream not yet read to
+// the end is one: the server is still sending it over the connection's handles.
+// Every call that sends a request checks this first (documented in OPTIONS.md).
+static AdbcStatusCode RejectWhileResultStreamOpen(const FireboltConnection * conn, AdbcError * error)
+{
+    if (conn->http && conn->http->resultStreamOpen())
+        return SetError(
+            error,
+            ADBC_STATUS_INVALID_STATE,
+            "A query result stream is still open on this connection; read it to the end or release it first");
+    return ADBC_STATUS_OK;
+}
+
 // ADBC 1.1.0 predates this option, so the vendored adbc.h does not declare it, but
 // driver managers send it (adbc_driver_manager 1.8.0,
 // StatementOptions.BIND_BY_NAME).
@@ -175,6 +188,8 @@ static void initCurl()
 // Used for BEGIN / COMMIT / ROLLBACK.
 static AdbcStatusCode RunSimpleSql(FireboltConnection * conn, const char * sql, AdbcError * error)
 {
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
+        return rc;
     auto resp = conn->http->executeQuery(sql, conn->session_params);
     ApplySessionUpdates(conn, resp);
     if (!resp.isSuccess())
@@ -660,6 +675,8 @@ static AdbcStatusCode CopyOptionString(const std::string & option_value, char * 
 static AdbcStatusCode QueryConnectionStringOption(
     FireboltConnection * conn, const std::string & sql, const std::string & option_name, std::string & out, AdbcError * error)
 {
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
+        return rc;
     auto resp = conn->http->executeQuery(sql, conn->session_params);
     ApplySessionUpdates(conn, resp);
     if (!resp.isSuccess())
@@ -746,6 +763,8 @@ ConnectionGetInfo(AdbcConnection * conn, const uint32_t * info_codes, size_t inf
 {
     if (!conn || !conn->private_data)
         return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
+        return rc;
     return firebolt::adbc::ConnectionGetInfo(static_cast<FireboltConnection *>(conn->private_data), info_codes, info_codes_len, out, error);
 }
 
@@ -762,6 +781,8 @@ static AdbcStatusCode ConnectionGetObjects(
 {
     if (!conn || !conn->private_data)
         return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
+        return rc;
     return firebolt::adbc::ConnectionGetObjects(
         static_cast<FireboltConnection *>(conn->private_data), depth, catalog, db_schema, table_name, table_type, column_name, out, error);
 }
@@ -771,6 +792,8 @@ static AdbcStatusCode ConnectionGetTableSchema(
 {
     if (!conn || !conn->private_data)
         return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
+        return rc;
     return firebolt::adbc::ConnectionGetTableSchema(
         static_cast<FireboltConnection *>(conn->private_data), catalog, db_schema, table_name, out, error);
 }
@@ -1079,6 +1102,8 @@ static AdbcStatusCode ReadSingleStringPayload(std::vector<uint8_t> body, const s
 static AdbcStatusCode Describe(FireboltStatement * fs, std::string & out_payload, AdbcError * error)
 {
     auto * conn = fs->conn;
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
+        return rc;
 
     std::unordered_map<std::string, std::string> params = conn->session_params;
     // Type inference must not join an open transaction, which would spend a
@@ -1246,6 +1271,11 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
     if (rows_affected)
         *rows_affected = -1;
 
+    // Before the bound data is consumed, so the call can be repeated once the
+    // stream is done.
+    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
+        return rc;
+
     // Clear bound state on every exit path so a bound payload is consumed
     // exactly once (including failures/exceptions).
     FIREBOLT_SCOPE_GUARD(if (fs->bound.has_value()) fs->bound.reset());
@@ -1379,7 +1409,7 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
             ApplySessionUpdates(conn, started.response);
             if (!started.response.isSuccess())
                 return HttpRespToStatus(started.response, error);
-            std::string err = ExportIpcBodyAsArrowStream(std::move(started.body), out);
+            std::string err = ExportIpcReadBufferAsArrowStream(std::move(started.body), out);
             if (!err.empty())
                 return SetError(error, ADBC_STATUS_IO, err);
             return ADBC_STATUS_OK;

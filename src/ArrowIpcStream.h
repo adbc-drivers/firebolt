@@ -19,23 +19,11 @@
 #include <string>
 #include <vector>
 
-#include "Status.h"
+#include "IO/IReadBuffer.h"
 #include "adbc.h" // for ArrowArrayStream
 
 namespace firebolt::adbc
 {
-
-// The body of a query response, read front to back.  Implemented over a body
-// already in memory and over one still arriving (QueryResponseStream).
-class ResponseBodySource
-{
-public:
-    virtual ~ResponseBodySource() = default;
-
-    // Copy up to `size` bytes of the body into `buffer`, waiting for at least one if
-    // none has arrived yet.  `bytes_read` is 0 only at the end of the body.
-    virtual Status read(uint8_t * buffer, size_t size, size_t & bytes_read) = 0;
-};
 
 // Export a response body of Arrow IPC stream bytes as an ArrowArrayStream (Arrow C
 // Data Interface), decoding each record batch as it is asked for.  The schema is
@@ -43,7 +31,7 @@ public:
 // stream.  A query that fails after its response started ends the body with the
 // error text in place of the next message; reading that message fails with the text.
 // Returns a non-empty error string on failure.
-std::string ExportIpcBodyAsArrowStream(std::unique_ptr<ResponseBodySource> body, ArrowArrayStream * out);
+std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, ArrowArrayStream * out);
 
 // The same, for a body already read into memory.
 std::string ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArrayStream * out);
