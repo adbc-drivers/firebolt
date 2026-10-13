@@ -38,6 +38,9 @@ finished.  Each item of the list is one `Chunk`:
     Pause(seconds)   the response waits that long — only for tests about time,
                      such as timeouts; a test that just needs the response to
                      stop until it says so uses an Event
+    Disconnect()     the connection closes there, without the final chunk: the
+                     response breaks off, as when a server dies mid-response.
+                     Its optional `closed` event is set once that has happened.
 
     gate = threading.Event()
     mock_server.queue(chunks=[schema, batch1, gate, batch2, end_of_stream])
@@ -75,8 +78,15 @@ class Pause:
     seconds: float
 
 
+@dataclasses.dataclass(frozen=True)
+class Disconnect:
+    """A chunk item: the connection closes, without the final chunk."""
+
+    closed: threading.Event | None = None
+
+
 # One item of a streamed response; see the module docstring.
-Chunk: TypeAlias = bytes | threading.Event | Pause
+Chunk: TypeAlias = bytes | threading.Event | Pause | Disconnect
 
 
 @dataclasses.dataclass
@@ -171,6 +181,13 @@ class MockFireboltServer:
                             item.wait(timeout=60)
                         elif isinstance(item, Pause):
                             time.sleep(item.seconds)
+                        elif isinstance(item, Disconnect):
+                            self.wfile.flush()
+                            self.connection.shutdown(socket.SHUT_WR)
+                            if item.closed:
+                                item.closed.set()
+                            return
+
                         elif item:  # an empty chunk would end the body early
                             # One chunk: "<size in hex>\r\n<data>\r\n".
                             self.wfile.write(b"%x\r\n%s\r\n" % (len(item), item))

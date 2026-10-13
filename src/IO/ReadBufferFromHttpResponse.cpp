@@ -44,19 +44,18 @@ namespace
 
 ReadBufferFromHttpResponse::ReadBufferFromHttpResponse(
     std::shared_ptr<CurlHandles> handles, curl_slist * request_headers, long idle_timeout_sec)
-    : handles(std::move(handles)), request_headers(request_headers), idle_timeout_sec(idle_timeout_sec)
+    : handles(std::move(handles))
+    , request_headers(request_headers)
+    , idle_timeout_sec(idle_timeout_sec)
+    , response_id(++this->handles->last_response_id)
 {
     CURL * easy = this->handles->easy;
-    this->handles->in_use = true;
+    this->handles->holder = this;
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, request_headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, onBodyBytes);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, this);
-    if (curl_multi_add_handle(this->handles->multi, easy) != CURLM_OK)
-    {
-        this->handles->in_use = false;
-        curl_slist_free_all(request_headers);
-        throw std::runtime_error("Failed to start an HTTP request");
-    }
+    if (CURLMcode code = curl_multi_add_handle(this->handles->multi, easy); code != CURLM_OK)
+        abandon(curlError(code));
 }
 
 ReadBufferFromHttpResponse::~ReadBufferFromHttpResponse()
@@ -74,20 +73,33 @@ void ReadBufferFromHttpResponse::releaseHandles()
     curl_easy_setopt(handles->easy, CURLOPT_HTTPHEADER, nullptr);
     curl_slist_free_all(request_headers);
     request_headers = nullptr;
-    handles->in_use = false;
+    handles->holder = nullptr;
+}
+
+void ReadBufferFromHttpResponse::abandon(Status reason)
+{
+    abandoned = std::move(reason);
+    releaseHandles();
 }
 
 size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata)
 {
     auto * stream = static_cast<ReadBufferFromHttpResponse *>(userdata);
     const size_t total = size * nmemb;
-    stream->received.insert(stream->received.end(), ptr, ptr + total);
+    try
+    {
+        stream->received.insert(stream->received.end(), ptr, ptr + total);
+    }
+    catch (std::exception &)
+    {
+        return 0; // no exception may unwind through curl: fail the transfer instead
+    }
     return total;
 }
 
-// receive() loops until new body bytes arrive or the transfer ends.  Curl has no
-// background thread: all network work happens inside these calls, on the caller's
-// thread.
+// receiveMoreBody() loops until new body bytes arrive or the transfer ends.  Curl
+// has no background thread: all network work happens inside these calls, on the
+// caller's thread.
 //   - curl_multi_perform() does whatever network work is ready without blocking:
 //     connecting, sending the request, reading the socket.
 //   - onBodyBytes() is called by curl from inside curl_multi_perform() with each
@@ -97,21 +109,28 @@ size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t n
 //   - curl_multi_poll() sleeps until the socket is ready again, then the loop
 //     calls curl_multi_perform() once more.
 // Since the socket is only read while a reader waits here, a slow consumer slows
-// the server down instead of filling memory.
-Status ReadBufferFromHttpResponse::receive()
+// the server down instead of filling memory.  Any failure releases the handles,
+// so a failed response never keeps the connection busy.
+Status ReadBufferFromHttpResponse::receiveMoreBody()
 {
+    if (!abandoned.ok())
+        return abandoned;
     if (consumed == received.size())
     {
         received.clear();
         consumed = 0;
     }
     const size_t already_received = received.size();
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(idle_timeout_sec);
+    // Whole seconds, compared as such: a huge timeout must not overflow.
+    const auto started = std::chrono::steady_clock::now();
     while (!finished && received.size() == already_received)
     {
         int running = 0;
         if (CURLMcode code = curl_multi_perform(handles->multi, &running); code != CURLM_OK)
-            return curlError(code);
+        {
+            abandon(curlError(code));
+            return abandoned;
+        }
         int queued = 0;
         while (CURLMsg * message = curl_multi_info_read(handles->multi, &queued))
         {
@@ -128,47 +147,44 @@ Status ReadBufferFromHttpResponse::receive()
         if (finished || received.size() != already_received)
             break;
 
-        int wait_ms = MAX_POLL_MS;
+        long long wait_ms = MAX_POLL_MS;
         if (idle_timeout_sec > 0)
         {
-            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-            if (remaining.count() <= 0)
-                return {
-                    ADBC_STATUS_TIMEOUT, "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)"};
-            wait_ms = static_cast<int>(std::min<long long>(remaining.count(), MAX_POLL_MS));
+            const auto waited = std::chrono::steady_clock::now() - started;
+            const long long waited_sec = std::chrono::duration_cast<std::chrono::seconds>(waited).count();
+            if (waited_sec >= idle_timeout_sec)
+            {
+                abandon(
+                    {ADBC_STATUS_TIMEOUT, "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)"});
+                return abandoned;
+            }
+            if (idle_timeout_sec - waited_sec <= 1)
+            {
+                const long long waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(waited).count();
+                wait_ms = (std::min)(wait_ms, idle_timeout_sec * 1000 - waited_ms);
+            }
         }
-        if (CURLMcode code = curl_multi_poll(handles->multi, nullptr, 0, wait_ms, nullptr); code != CURLM_OK)
-            return curlError(code);
+        if (CURLMcode code = curl_multi_poll(handles->multi, nullptr, 0, static_cast<int>(wait_ms), nullptr); code != CURLM_OK)
+        {
+            abandon(curlError(code));
+            return abandoned;
+        }
     }
-    if (finished && transfer_result != CURLE_OK)
+    // Bytes that arrived with the end of a failed transfer are read first; the
+    // failure is reported once they are.
+    if (finished && transfer_result != CURLE_OK && received.size() == consumed)
         return curlError(transfer_result);
     return {};
-}
-
-Status ReadBufferFromHttpResponse::waitForResponse()
-{
-    return receive();
-}
-
-Status ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body)
-{
-    for (;;)
-    {
-        body.insert(body.end(), received.begin() + static_cast<std::ptrdiff_t>(consumed), received.end());
-        consumed = received.size();
-        if (Status status = receive(); !status.ok())
-            return status;
-        if (finished && consumed == received.size())
-            return {};
-    }
 }
 
 Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & bytes_read)
 {
     bytes_read = 0;
+    if (!abandoned.ok())
+        return abandoned;
     if (consumed == received.size())
     {
-        if (Status status = receive(); !status.ok())
+        if (Status status = receiveMoreBody(); !status.ok())
             return status;
     }
     bytes_read = (std::min)(size, received.size() - consumed);

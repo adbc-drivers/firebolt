@@ -124,8 +124,14 @@ public:
         const std::vector<uint8_t> & arrow_ipc_bytes,
         const std::unordered_map<std::string, std::string> & session_params);
 
-    // Whether a response from startQuery still holds the connection's handles.
-    bool resultStreamOpen() const { return handles->in_use; }
+    // Whether a response from startQuery still holds the connection's handles.  A
+    // connection sends one request at a time, so every request made meanwhile
+    // fails with ADBC_STATUS_INVALID_STATE, without being sent.
+    bool resultStreamOpen() const { return handles->holder != nullptr; }
+
+    // Abandon the response with this id, if it still holds the handles: a new
+    // execution of a statement replaces its previous result (ADBC).
+    void abandonResult(uint64_t response_id);
 
 private:
     std::shared_ptr<CurlHandles> handles = std::make_shared<CurlHandles>();
@@ -134,12 +140,13 @@ private:
     std::string buildUrl(CURL * handle, const std::unordered_map<std::string, std::string> & session_params) const;
     static curl_slist * buildAuthHeader(const std::string & token);
     void applyTlsOptions(CURL * handle) const;
-    // The easy handle, reset for a new request.  Callers check resultStreamOpen()
-    // first; this throws if they did not.
-    CURL * startRequest();
+    // The response to a request made while a result stream is open.
+    static StartedResponse refuseWhileResultStreamOpen();
+    // The easy handle, reset for a new request.
+    CURL * resetHandle();
     // Sends the request configured on the easy handle and waits for its response
     // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
-    StartedResponse send(const char * content_type, long idle_timeout_sec);
+    StartedResponse sendAndAwaitResponseStart(const char * content_type, long idle_timeout_sec);
     void parseResponseHeaders(CURL * handle, HttpResponse & resp) const;
     // Reads the rest of a started response into its `body`.
     static HttpResponse readWholeResponse(StartedResponse started);

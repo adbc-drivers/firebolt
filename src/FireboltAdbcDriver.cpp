@@ -132,19 +132,6 @@ static void ApplySessionUpdates(FireboltConnection * conn, const HttpResponse & 
         conn->url = resp.new_endpoint;
 }
 
-// A connection sends one request at a time, and a result stream not yet read to
-// the end is one: the server is still sending it over the connection's handles.
-// Every call that sends a request checks this first (documented in OPTIONS.md).
-static AdbcStatusCode RejectWhileResultStreamOpen(const FireboltConnection * conn, AdbcError * error)
-{
-    if (conn->http && conn->http->resultStreamOpen())
-        return SetError(
-            error,
-            ADBC_STATUS_INVALID_STATE,
-            "A query result stream is still open on this connection; read it to the end or release it first");
-    return ADBC_STATUS_OK;
-}
-
 // ADBC 1.1.0 predates this option, so the vendored adbc.h does not declare it, but
 // driver managers send it (adbc_driver_manager 1.8.0,
 // StatementOptions.BIND_BY_NAME).
@@ -188,8 +175,6 @@ static void initCurl()
 // Used for BEGIN / COMMIT / ROLLBACK.
 static AdbcStatusCode RunSimpleSql(FireboltConnection * conn, const char * sql, AdbcError * error)
 {
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
-        return rc;
     auto resp = conn->http->executeQuery(sql, conn->session_params);
     ApplySessionUpdates(conn, resp);
     if (!resp.isSuccess())
@@ -559,61 +544,68 @@ static AdbcStatusCode ConnectionNew(AdbcConnection * conn, AdbcError * error)
 
 static AdbcStatusCode ConnectionSetOption(AdbcConnection * conn, const char * key, const char * value, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    auto * fc = static_cast<FireboltConnection *>(conn->private_data);
-    if (!key)
-        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
-    const std::string k(key);
-    const std::string v(value ? value : "");
-
-    if (k == ADBC_CONNECTION_OPTION_AUTOCOMMIT)
+    try
     {
-        // ADBC canonicalises exactly two values for a boolean option.  Treating
-        // "anything that is not false" as true made "0", "FALSE" and any typo
-        // silently mean autocommit ON — and this is the one option where
-        // misreading the value changes durability rather than just behaviour:
-        // the caller believes they are inside a transaction while every
-        // statement is being committed as it executes.  Refuse instead.
-        if (v != ADBC_OPTION_VALUE_ENABLED && v != ADBC_OPTION_VALUE_DISABLED)
-            return SetError(
-                error,
-                ADBC_STATUS_INVALID_ARGUMENT,
-                "Option '" + k + "' must be exactly \"" + ADBC_OPTION_VALUE_ENABLED + "\" or \"" + ADBC_OPTION_VALUE_DISABLED + "\"; got '"
-                    + v + "'");
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        auto * fc = static_cast<FireboltConnection *>(conn->private_data);
+        if (!key)
+            return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
+        const std::string k(key);
+        const std::string v(value ? value : "");
 
-        const bool want_autocommit = (v == ADBC_OPTION_VALUE_ENABLED);
-        if (want_autocommit && !fc->autocommit && fc->in_transaction && fc->http)
+        if (k == ADBC_CONNECTION_OPTION_AUTOCOMMIT)
         {
-            // Switching back to autocommit while inside a transaction: commit it.
-            AdbcStatusCode rc = RunSimpleSql(fc, "COMMIT", error);
-            if (rc != ADBC_STATUS_OK)
-                return rc;
-            fc->in_transaction = false;
-        }
-        fc->autocommit = want_autocommit;
-        return ADBC_STATUS_OK;
-    }
-    if (k == "firebolt.token")
-    {
-        // Update the bearer token used in the Authorization header.  Stored
-        // per-connection (NOT on the shared FireboltDatabase) so two
-        // connections sharing the same AdbcDatabase keep independent
-        // identities.  HttpClient holds a const reference to this
-        // FireboltConnection and reads conn_.token live on each request, so
-        // no sync call is needed.  Never written into session_params: those
-        // are URL-encoded into the query string on every request and would
-        // leak the JWT into proxy and server access logs.
-        fc->token = v;
-        return ADBC_STATUS_OK;
-    }
+            // ADBC canonicalises exactly two values for a boolean option.  Treating
+            // "anything that is not false" as true made "0", "FALSE" and any typo
+            // silently mean autocommit ON — and this is the one option where
+            // misreading the value changes durability rather than just behaviour:
+            // the caller believes they are inside a transaction while every
+            // statement is being committed as it executes.  Refuse instead.
+            if (v != ADBC_OPTION_VALUE_ENABLED && v != ADBC_OPTION_VALUE_DISABLED)
+                return SetError(
+                    error,
+                    ADBC_STATUS_INVALID_ARGUMENT,
+                    "Option '" + k + "' must be exactly \"" + ADBC_OPTION_VALUE_ENABLED + "\" or \"" + ADBC_OPTION_VALUE_DISABLED
+                        + "\"; got '" + v + "'");
 
-    if (k.rfind(SESSION_OPTION_PREFIX, 0) == 0 && k.size() > SESSION_OPTION_PREFIX.size())
-    {
-        fc->session_params[k.substr(SESSION_OPTION_PREFIX.size())] = v;
-        return ADBC_STATUS_OK;
+            const bool want_autocommit = (v == ADBC_OPTION_VALUE_ENABLED);
+            if (want_autocommit && !fc->autocommit && fc->in_transaction && fc->http)
+            {
+                // Switching back to autocommit while inside a transaction: commit it.
+                AdbcStatusCode rc = RunSimpleSql(fc, "COMMIT", error);
+                if (rc != ADBC_STATUS_OK)
+                    return rc;
+                fc->in_transaction = false;
+            }
+            fc->autocommit = want_autocommit;
+            return ADBC_STATUS_OK;
+        }
+        if (k == "firebolt.token")
+        {
+            // Update the bearer token used in the Authorization header.  Stored
+            // per-connection (NOT on the shared FireboltDatabase) so two
+            // connections sharing the same AdbcDatabase keep independent
+            // identities.  HttpClient holds a const reference to this
+            // FireboltConnection and reads conn_.token live on each request, so
+            // no sync call is needed.  Never written into session_params: those
+            // are URL-encoded into the query string on every request and would
+            // leak the JWT into proxy and server access logs.
+            fc->token = v;
+            return ADBC_STATUS_OK;
+        }
+
+        if (k.rfind(SESSION_OPTION_PREFIX, 0) == 0 && k.size() > SESSION_OPTION_PREFIX.size())
+        {
+            fc->session_params[k.substr(SESSION_OPTION_PREFIX.size())] = v;
+            return ADBC_STATUS_OK;
+        }
+        return SetError(error, ADBC_STATUS_NOT_IMPLEMENTED, "Unsupported connection option '" + k + "'");
     }
-    return SetError(error, ADBC_STATUS_NOT_IMPLEMENTED, "Unsupported connection option '" + k + "'");
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionInit(AdbcConnection * conn, AdbcDatabase * db, AdbcError * error)
@@ -675,8 +667,6 @@ static AdbcStatusCode CopyOptionString(const std::string & option_value, char * 
 static AdbcStatusCode QueryConnectionStringOption(
     FireboltConnection * conn, const std::string & sql, const std::string & option_name, std::string & out, AdbcError * error)
 {
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
-        return rc;
     auto resp = conn->http->executeQuery(sql, conn->session_params);
     ApplySessionUpdates(conn, resp);
     if (!resp.isSuccess())
@@ -686,45 +676,52 @@ static AdbcStatusCode QueryConnectionStringOption(
 
 static AdbcStatusCode ConnectionGetOption(AdbcConnection * conn, const char * key, char * value, size_t * length, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    auto * fc = static_cast<FireboltConnection *>(conn->private_data);
-    if (!fc->http)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    if (!key)
-        return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        auto * fc = static_cast<FireboltConnection *>(conn->private_data);
+        if (!fc->http)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        if (!key)
+            return SetError(error, ADBC_STATUS_INVALID_ARGUMENT, "Option key is null");
 
-    std::lock_guard<std::mutex> lock(fc->get_option_mutex);
-    std::string option_value;
-    AdbcStatusCode status = ADBC_STATUS_OK;
-    if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_CATALOG) == 0)
-    {
-        status = QueryConnectionStringOption(fc, "SELECT current_database()", key, option_value, error);
-    }
-    else if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_DB_SCHEMA) == 0)
-    {
-        status = QueryConnectionStringOption(fc, "SELECT current_schema()", key, option_value, error);
-    }
-    else if (strcmp(key, ADBC_CONNECTION_OPTION_AUTOCOMMIT) == 0)
-    {
-        option_value = fc->autocommit ? ADBC_OPTION_VALUE_ENABLED : ADBC_OPTION_VALUE_DISABLED;
-    }
-    else if (std::string_view(key).rfind(SESSION_OPTION_PREFIX, 0) == 0 && std::string_view(key).size() > SESSION_OPTION_PREFIX.size())
-    {
-        const std::string parameter_name{std::string_view(key).substr(SESSION_OPTION_PREFIX.size())};
-        const auto parameter = fc->session_params.find(parameter_name);
-        if (parameter == fc->session_params.end())
+        std::lock_guard<std::mutex> lock(fc->get_option_mutex);
+        std::string option_value;
+        AdbcStatusCode status = ADBC_STATUS_OK;
+        if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_CATALOG) == 0)
+        {
+            status = QueryConnectionStringOption(fc, "SELECT current_database()", key, option_value, error);
+        }
+        else if (strcmp(key, ADBC_CONNECTION_OPTION_CURRENT_DB_SCHEMA) == 0)
+        {
+            status = QueryConnectionStringOption(fc, "SELECT current_schema()", key, option_value, error);
+        }
+        else if (strcmp(key, ADBC_CONNECTION_OPTION_AUTOCOMMIT) == 0)
+        {
+            option_value = fc->autocommit ? ADBC_OPTION_VALUE_ENABLED : ADBC_OPTION_VALUE_DISABLED;
+        }
+        else if (std::string_view(key).rfind(SESSION_OPTION_PREFIX, 0) == 0 && std::string_view(key).size() > SESSION_OPTION_PREFIX.size())
+        {
+            const std::string parameter_name{std::string_view(key).substr(SESSION_OPTION_PREFIX.size())};
+            const auto parameter = fc->session_params.find(parameter_name);
+            if (parameter == fc->session_params.end())
+                return UnknownOption("connection", key, error);
+            option_value = parameter->second;
+        }
+        else
+        {
             return UnknownOption("connection", key, error);
-        option_value = parameter->second;
-    }
-    else
-    {
-        return UnknownOption("connection", key, error);
-    }
+        }
 
-    if (status != ADBC_STATUS_OK)
-        return status;
-    return CopyOptionString(option_value, value, length, error);
+        if (status != ADBC_STATUS_OK)
+            return status;
+        return CopyOptionString(option_value, value, length, error);
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode
@@ -761,11 +758,17 @@ static AdbcStatusCode ConnectionRelease(AdbcConnection * conn, AdbcError * /*err
 static AdbcStatusCode
 ConnectionGetInfo(AdbcConnection * conn, const uint32_t * info_codes, size_t info_codes_len, ArrowArrayStream * out, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
-        return rc;
-    return firebolt::adbc::ConnectionGetInfo(static_cast<FireboltConnection *>(conn->private_data), info_codes, info_codes_len, out, error);
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        return firebolt::adbc::ConnectionGetInfo(
+            static_cast<FireboltConnection *>(conn->private_data), info_codes, info_codes_len, out, error);
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionGetObjects(
@@ -779,30 +782,55 @@ static AdbcStatusCode ConnectionGetObjects(
     ArrowArrayStream * out,
     AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
-        return rc;
-    return firebolt::adbc::ConnectionGetObjects(
-        static_cast<FireboltConnection *>(conn->private_data), depth, catalog, db_schema, table_name, table_type, column_name, out, error);
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        return firebolt::adbc::ConnectionGetObjects(
+            static_cast<FireboltConnection *>(conn->private_data),
+            depth,
+            catalog,
+            db_schema,
+            table_name,
+            table_type,
+            column_name,
+            out,
+            error);
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionGetTableSchema(
     AdbcConnection * conn, const char * catalog, const char * db_schema, const char * table_name, ArrowSchema * out, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(static_cast<FireboltConnection *>(conn->private_data), error); rc != ADBC_STATUS_OK)
-        return rc;
-    return firebolt::adbc::ConnectionGetTableSchema(
-        static_cast<FireboltConnection *>(conn->private_data), catalog, db_schema, table_name, out, error);
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        return firebolt::adbc::ConnectionGetTableSchema(
+            static_cast<FireboltConnection *>(conn->private_data), catalog, db_schema, table_name, out, error);
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionGetTableTypes(AdbcConnection * conn, ArrowArrayStream * out, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    return firebolt::adbc::ConnectionGetTableTypes(static_cast<FireboltConnection *>(conn->private_data), out, error);
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        return firebolt::adbc::ConnectionGetTableTypes(static_cast<FireboltConnection *>(conn->private_data), out, error);
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionReadPartition(
@@ -817,32 +845,46 @@ static AdbcStatusCode ConnectionReadPartition(
 
 static AdbcStatusCode ConnectionCommit(AdbcConnection * conn, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    auto * fc = static_cast<FireboltConnection *>(conn->private_data);
-    if (fc->autocommit)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Cannot commit: connection is in autocommit mode");
-    if (!fc->in_transaction)
-        return ADBC_STATUS_OK; // nothing to commit
-    AdbcStatusCode rc = RunSimpleSql(fc, "COMMIT", error);
-    if (rc == ADBC_STATUS_OK)
-        fc->in_transaction = false;
-    return rc;
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        auto * fc = static_cast<FireboltConnection *>(conn->private_data);
+        if (fc->autocommit)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Cannot commit: connection is in autocommit mode");
+        if (!fc->in_transaction)
+            return ADBC_STATUS_OK; // nothing to commit
+        AdbcStatusCode rc = RunSimpleSql(fc, "COMMIT", error);
+        if (rc == ADBC_STATUS_OK)
+            fc->in_transaction = false;
+        return rc;
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 static AdbcStatusCode ConnectionRollback(AdbcConnection * conn, AdbcError * error)
 {
-    if (!conn || !conn->private_data)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
-    auto * fc = static_cast<FireboltConnection *>(conn->private_data);
-    if (fc->autocommit)
-        return SetError(error, ADBC_STATUS_INVALID_STATE, "Cannot rollback: connection is in autocommit mode");
-    if (!fc->in_transaction)
-        return ADBC_STATUS_OK; // nothing to roll back
-    AdbcStatusCode rc = RunSimpleSql(fc, "ROLLBACK", error);
-    if (rc == ADBC_STATUS_OK)
-        fc->in_transaction = false;
-    return rc;
+    try
+    {
+        if (!conn || !conn->private_data)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Connection not initialized");
+        auto * fc = static_cast<FireboltConnection *>(conn->private_data);
+        if (fc->autocommit)
+            return SetError(error, ADBC_STATUS_INVALID_STATE, "Cannot rollback: connection is in autocommit mode");
+        if (!fc->in_transaction)
+            return ADBC_STATUS_OK; // nothing to roll back
+        AdbcStatusCode rc = RunSimpleSql(fc, "ROLLBACK", error);
+        if (rc == ADBC_STATUS_OK)
+            fc->in_transaction = false;
+        return rc;
+    }
+    catch (std::exception & ex)
+    {
+        return SetError(error, ADBC_STATUS_INTERNAL, ex.what());
+    }
 }
 
 // ============================================================
@@ -1101,8 +1143,6 @@ static AdbcStatusCode ReadSingleStringPayload(std::vector<uint8_t> body, const s
 static AdbcStatusCode Describe(FireboltStatement * fs, std::string & out_payload, AdbcError * error)
 {
     auto * conn = fs->conn;
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
-        return rc;
 
     std::unordered_map<std::string, std::string> params = conn->session_params;
     // Type inference must not join an open transaction, which would spend a
@@ -1270,10 +1310,9 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
     if (rows_affected)
         *rows_affected = -1;
 
-    // Before the bound data is consumed, so the call can be repeated once the
-    // stream is done.
-    if (AdbcStatusCode rc = RejectWhileResultStreamOpen(conn, error); rc != ADBC_STATUS_OK)
-        return rc;
+    // A new execution replaces this statement's previous result (ADBC), so a
+    // stream of it still open is abandoned rather than blocking the connection.
+    conn->http->abandonResult(fs->result_response_id);
 
     // Clear bound state on every exit path so a bound payload is consumed
     // exactly once (including failures/exceptions).
@@ -1408,6 +1447,7 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
             ApplySessionUpdates(conn, started.response);
             if (!started.response.isSuccess())
                 return HttpRespToStatus(started.response, error);
+            fs->result_response_id = started.body->id();
             Status status = ExportIpcReadBufferAsArrowStream(std::move(started.body), out);
             return status.ok() ? ADBC_STATUS_OK : SetError(error, status.code, status.message);
         }

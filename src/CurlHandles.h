@@ -15,22 +15,26 @@
 
 #pragma once
 
-#include <atomic>
+#include <cstdint>
 
 #include <curl/curl.h>
 
 namespace firebolt::adbc
 {
 
+class ReadBufferFromHttpResponse;
+
 // A connection's curl handles: an easy handle and the multi handle that runs its
 // transfers, which keeps the HTTP connection open from one request to the next.
 // A response is read through them until it ends, so the connection sends one
-// request at a time; `in_use` is set while a response holds them.
+// request at a time; `holder` is the response holding them, if any.
 struct CurlHandles
 {
     CURLM * multi = nullptr;
     CURL * easy = nullptr;
-    std::atomic<bool> in_use = false;
+    ReadBufferFromHttpResponse * holder = nullptr;
+    // The id of the last response started on these handles.
+    uint64_t last_response_id = 0;
 
     CurlHandles();
     ~CurlHandles();

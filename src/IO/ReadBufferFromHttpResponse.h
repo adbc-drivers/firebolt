@@ -44,31 +44,35 @@ public:
     ReadBufferFromHttpResponse(const ReadBufferFromHttpResponse &) = delete;
     ReadBufferFromHttpResponse & operator=(const ReadBufferFromHttpResponse &) = delete;
 
-    // Wait until the body starts or the transfer ends; the status and the response
-    // headers are known after it succeeds.
-    Status waitForResponse();
-
-    // Read the rest of the body onto the end of `body`.
-    Status readToEnd(std::vector<uint8_t> & body);
+    // Wait for body bytes beyond those received, or for the end of the transfer.
+    // Called once before anything is read, it waits for the response to start:
+    // its status and headers are then known.
+    Status receiveMoreBody();
 
     // Stop the transfer, if unfinished, and give the handles back to the
     // connection with their options kept, so the request can be sent again.
     void releaseHandles();
 
+    // Stop the transfer and fail every later read with `reason`.
+    void abandon(Status reason);
+
     CURL * handle() const { return handles->easy; }
+
+    // Tells this response apart from others on the same handles.
+    uint64_t id() const { return response_id; }
 
     Status read(uint8_t * buffer, size_t size, size_t & bytes_read) override;
 
 private:
     static size_t onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata);
 
-    // Wait for body bytes beyond those received, or for the end of the transfer.
-    Status receive();
-
     std::shared_ptr<CurlHandles> handles;
     curl_slist * request_headers;
     bool holds_handles = true;
     long idle_timeout_sec;
+    uint64_t response_id;
+    // Why reads fail from now on, once the response was abandoned.
+    Status abandoned;
     // Body bytes received but not yet read, from `consumed` on.  Cleared once read,
     // and refilled only then, by one curl_multi_perform: curl reads the socket at
     // most ~11 times its 16 KiB buffer per call, so this holds ~176 KiB at most,

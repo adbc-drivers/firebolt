@@ -288,6 +288,7 @@ add_library(adbc_driver_firebolt SHARED
     src/FireboltAdbcMetadata.cpp
     src/HttpClient.cpp
     src/IO/ReadBufferFromHttpResponse.cpp
+    src/IO/ReadHelpers.cpp
     src/CurlHandles.cpp
     src/HttpHeaderParse.cpp
     src/ArrowIpcStream.cpp
@@ -411,6 +412,7 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         src/FireboltUri.cpp
         ${_fb2_tests}
         src/ArrowIpcStream.cpp
+        src/IO/ReadHelpers.cpp
         src/IngestSqlBuilder.cpp
         src/HttpHeaderParse.cpp
         src/QueryParameters.cpp

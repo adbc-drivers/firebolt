@@ -198,8 +198,9 @@ under "Other environments".
 - **One request at a time**: a connection has one easy+multi pair (`CurlHandles`),
   which keeps its HTTP connection alive. An open result stream holds it until its
   transfer ends (reading past the last batch drains the body) or it is released;
-  meanwhile every entry point that sends a request returns `ADBC_STATUS_INVALID_STATE`
-  via `RejectWhileResultStreamOpen`. Documented in OPTIONS.md.
+  meanwhile every request fails with `ADBC_STATUS_INVALID_STATE` in `HttpClient`,
+  unsent. A failed stream lets go at once; re-executing the same statement abandons
+  its own open result (`abandonResult`). Documented in OPTIONS.md.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /

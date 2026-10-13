@@ -14,6 +14,7 @@
 
 #include "ArrowIpcStream.h"
 #include "IO/ReadBufferFromMemory.h"
+#include "IO/ReadHelpers.h"
 
 #include <algorithm>
 #include <cctype>
@@ -182,105 +183,84 @@ namespace
     // How much of that error text is kept for the message.
     constexpr size_t MAX_ERROR_TEXT_SIZE = 64 * 1024;
 
-    // The body behind nanoarrow's IPC reader, owned by its ArrowIpcInputStream.
-    struct IpcInput
+    // nanoarrow's IPC reader over a response body, with the body's errors in place
+    // of its own.  It is both the ArrowArrayStream's private data and the private
+    // data of the ArrowIpcInputStream the reader pulls bytes through.
+    struct IpcReaderState
     {
         std::unique_ptr<IReadBuffer> body;
-        // Read ahead to tell an empty body from one that starts with a schema.
-        std::vector<uint8_t> lookahead;
-        // Set by the stream before each message: the next read starts one.
+        // Set before each message is read: the next read starts one.
         bool at_message_start = true;
+        // Whether the body had any bytes at all; DDL and zero-row results have none.
+        bool body_started = false;
         // Why the body could not be read; empty while it can.
-        std::string error;
+        std::string body_error;
 
-        // Fill `buffer` with `size` bytes, fewer only at the end of the body.
-        Status readFully(uint8_t * buffer, size_t size, size_t & bytes_read)
+        nanoarrow::UniqueArrayStream ipc_reader;
+        nanoarrow::UniqueSchema schema;
+        std::string last_error;
+
+        // Record why the last read failed, preferring the body's own reason.
+        int recordFailure(int code)
         {
-            bytes_read = (std::min)(size, lookahead.size());
-            memcpy(buffer, lookahead.data(), bytes_read);
-            lookahead.erase(lookahead.begin(), lookahead.begin() + static_cast<std::ptrdiff_t>(bytes_read));
-            while (bytes_read < size)
-            {
-                size_t received = 0;
-                Status status = body->read(buffer + bytes_read, size - bytes_read, received);
-                if (!status.ok())
-                    return status;
-                if (received == 0)
-                    break;
-                bytes_read += received;
-            }
-            return {};
+            const char * reader_error = ipc_reader->get_last_error(ipc_reader.get());
+            last_error = !body_error.empty() ? body_error : reader_error ? reader_error : "Failed to read the query result";
+            return code;
         }
     };
 
-    // Read and drop whatever is left of the body.
-    void skipToEnd(IReadBuffer & body)
-    {
-        uint8_t chunk[4096];
-        size_t received = 0;
-        while (body.read(chunk, sizeof(chunk), received).ok() && received > 0)
-        {
-        }
-    }
-
-    // The error text that begins with `start`: it and the rest of the body.
+    // The error text that begins with `start`: it and the rest of the body, up to
+    // MAX_ERROR_TEXT_SIZE.  The rest is read too, which ends the transfer.
     std::string readErrorText(IReadBuffer & body, const uint8_t * start, size_t size)
     {
         std::string text(reinterpret_cast<const char *>(start), size);
-        uint8_t chunk[4096];
-        size_t received = 0;
-        while (text.size() < MAX_ERROR_TEXT_SIZE && body.read(chunk, sizeof(chunk), received).ok() && received > 0)
-            text.append(reinterpret_cast<const char *>(chunk), received);
+        if (readToEnd(body, text, MAX_ERROR_TEXT_SIZE).ok())
+            (void)skipToEnd(body); // the message is complete either way
         while (!text.empty() && isspace(static_cast<unsigned char>(text.back())))
             text.pop_back();
         return text;
     }
 
+    // ArrowIpcInputStream::read: nanoarrow asks for exactly the bytes of the next
+    // part of a message.  The first read of each message must start with the
+    // continuation marker; anything else is the error text Firebolt sends when a
+    // query fails after its response started.
     ArrowErrorCode ipcInputRead(ArrowIpcInputStream * stream, uint8_t * buffer, int64_t size, int64_t * size_read, ArrowError * error)
     {
-        auto * reader = static_cast<IpcInput *>(stream->private_data);
-        size_t bytes_read = 0;
-        Status status = reader->readFully(buffer, static_cast<size_t>(size), bytes_read);
-        if (!status.ok())
-            reader->error = status.message;
-        else if (
-            reader->at_message_start && bytes_read > 0
-            && (bytes_read < sizeof(CONTINUATION_MARKER) || memcmp(buffer, CONTINUATION_MARKER, sizeof(CONTINUATION_MARKER)) != 0))
-            reader->error = "Query failed while streaming results: " + readErrorText(*reader->body, buffer, bytes_read);
-        reader->at_message_start = false;
-
-        if (!reader->error.empty())
+        auto * state = static_cast<IpcReaderState *>(stream->private_data);
+        try
         {
-            ArrowErrorSet(error, "%s", reader->error.c_str());
+            size_t bytes_read = 0;
+            Status status = readFully(*state->body, buffer, static_cast<size_t>(size), bytes_read);
+            state->body_started = state->body_started || bytes_read > 0;
+            if (!status.ok())
+                state->body_error = status.message;
+            else if (
+                state->at_message_start && bytes_read > 0
+                && (bytes_read < sizeof(CONTINUATION_MARKER) || memcmp(buffer, CONTINUATION_MARKER, sizeof(CONTINUATION_MARKER)) != 0))
+                state->body_error = "Query failed while streaming results: " + readErrorText(*state->body, buffer, bytes_read);
+            state->at_message_start = false;
+            *size_read = static_cast<int64_t>(bytes_read);
+        }
+        catch (std::exception & ex)
+        {
+            state->body_error = ex.what();
+        }
+
+        if (!state->body_error.empty())
+        {
+            ArrowErrorSet(error, "%s", state->body_error.c_str());
             return EIO;
         }
-        *size_read = static_cast<int64_t>(bytes_read);
         return NANOARROW_OK;
     }
 
+    // The input stream does not own its private data: the IpcReaderState does.
     void ipcInputRelease(ArrowIpcInputStream * stream)
     {
-        delete static_cast<IpcInput *>(stream->private_data);
         stream->private_data = nullptr;
         stream->release = nullptr;
     }
-
-    // nanoarrow's IPC reader, with the body's errors in place of its own.
-    struct IpcReaderState
-    {
-        nanoarrow::UniqueArrayStream ipc_reader; // owns the input stream, and so `body`
-        IpcInput * body = nullptr;
-        nanoarrow::UniqueSchema schema;
-        std::string last_error;
-
-        // The reason the last read failed, preferring the body's own.
-        int fail(int code)
-        {
-            const char * reader_error = ipc_reader->get_last_error(ipc_reader.get());
-            last_error = !body->error.empty() ? body->error : reader_error ? reader_error : "Failed to read the query result";
-            return code;
-        }
-    };
 
     int ipcReaderGetSchema(ArrowArrayStream * stream, ArrowSchema * out)
     {
@@ -288,19 +268,34 @@ namespace
         return ArrowSchemaDeepCopy(state->schema.get(), out);
     }
 
+    // Decode the next record batch.  Each call reads exactly one IPC message, so
+    // the marker check in ipcInputRead sees the start of each one.  A body error
+    // is final: later calls report it again without reading.
     int ipcReaderGetNext(ArrowArrayStream * stream, ArrowArray * out)
     {
         auto * state = static_cast<IpcReaderState *>(stream->private_data);
-        if (!state->body->error.empty())
-            return state->fail(EIO);
-        state->body->at_message_start = true;
+        if (!state->body_error.empty())
+            return state->recordFailure(EIO);
+        state->at_message_start = true;
         const int rc = state->ipc_reader->get_next(state->ipc_reader.get(), out);
         if (rc != 0)
-            return state->fail(rc);
+            return state->recordFailure(rc);
         // After the end-of-stream marker, read the response to its end: that ends
         // the transfer, which frees the connection for its next request.
         if (!out->release)
-            skipToEnd(*state->body->body);
+        {
+            try
+            {
+                if (Status status = skipToEnd(*state->body); !status.ok())
+                    state->body_error = status.message;
+            }
+            catch (std::exception & ex)
+            {
+                state->body_error = ex.what();
+            }
+            if (!state->body_error.empty())
+                return state->recordFailure(EIO);
+        }
         return 0;
     }
 
@@ -322,36 +317,23 @@ namespace
 
 Status ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, ArrowArrayStream * out)
 {
-    auto reader = std::make_unique<IpcInput>();
-    reader->body = std::move(body);
-
-    // DDL and zero-row results have no bytes at all, not even a schema.
-    reader->lookahead.resize(1);
-    size_t received = 0;
-    Status status = reader->body->read(reader->lookahead.data(), 1, received);
-    if (!status.ok())
-        return status;
-    if (received == 0)
-        return ExportEmptyStream(out);
-
     auto state = std::make_unique<IpcReaderState>();
-    state->body = reader.get();
-    ArrowIpcInputStream input{ipcInputRead, ipcInputRelease, reader.release()};
+    state->body = std::move(body);
+    ArrowIpcInputStream input{ipcInputRead, ipcInputRelease, state.get()};
     if (ArrowIpcArrayStreamReaderInit(state->ipc_reader.get(), &input, nullptr) != 0)
-    {
-        if (input.release)
-            input.release(&input);
         return {ADBC_STATUS_INTERNAL, "ArrowIpcArrayStreamReaderInit failed"};
-    }
 
     // Read now, so a body that is not an Arrow stream fails here and every later
     // get_next reads exactly one message.
     if (state->ipc_reader->get_schema(state->ipc_reader.get(), state->schema.get()) != 0)
     {
-        state->fail(EIO);
+        // DDL and zero-row results have no bytes at all, not even a schema.
+        if (!state->body_started && state->body_error.empty())
+            return ExportEmptyStream(out);
+        state->recordFailure(EIO);
         // The body failed, or held error text: an I/O error.  Otherwise the bytes
         // were not an Arrow stream.
-        const AdbcStatusCode code = state->body->error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO;
+        const AdbcStatusCode code = state->body_error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO;
         return {code, state->last_error};
     }
 

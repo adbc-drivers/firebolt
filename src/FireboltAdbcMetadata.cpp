@@ -114,7 +114,7 @@ static std::optional<int32_t> viewGetInt32(const ArrowArrayView * av, int64_t i)
 }
 
 // Execute SQL and read all result rows into a FlatResult.
-static std::string executeAndRead(FireboltConnection * conn, const std::string & sql, FlatResult & result)
+static Status executeAndRead(FireboltConnection * conn, const std::string & sql, FlatResult & result)
 {
     auto resp = conn->http->executeQuery(sql, conn->session_params);
     // Honour server-advertised session updates on success — keeps metadata-path
@@ -122,15 +122,15 @@ static std::string executeAndRead(FireboltConnection * conn, const std::string &
     // reset after a GetObjects call is not silently dropped.
     applySessionUpdatesIfSuccess(conn->session_params, resp);
     if (!resp.transfer.ok())
-        return resp.transfer.message;
+        return resp.transfer;
     if (!resp.isSuccess())
-        return resp.error_message.empty() ? "HTTP error " + std::to_string(resp.http_code) : resp.error_message;
+        return {ADBC_STATUS_IO, resp.error_message.empty() ? "HTTP error " + std::to_string(resp.http_code) : resp.error_message};
     if (resp.body.empty())
         return {};
 
     ArrowArrayStream stream{};
     if (Status status = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream); !status.ok())
-        return status.message;
+        return status;
 
     // Get schema.
     ArrowSchema schema{};
@@ -138,7 +138,7 @@ static std::string executeAndRead(FireboltConnection * conn, const std::string &
     {
         if (stream.release)
             stream.release(&stream);
-        return "get_schema failed";
+        return {ADBC_STATUS_INTERNAL, "get_schema failed"};
     }
 
     int n_cols = static_cast<int>(schema.n_children);
@@ -205,9 +205,8 @@ static AdbcStatusCode queryVendorVersion(FireboltConnection * conn, std::string 
         return SetError(error, ADBC_STATUS_INVALID_STATE, "GetInfo: connection not initialized");
 
     FlatResult result;
-    std::string query_error = executeAndRead(conn, "SELECT version()", result);
-    if (!query_error.empty())
-        return SetError(error, ADBC_STATUS_IO, "GetInfo: failed to query vendor version: " + query_error);
+    if (Status status = executeAndRead(conn, "SELECT version()", result); !status.ok())
+        return SetError(error, status.code, "GetInfo: failed to query vendor version: " + status.message);
 
     if (result.col_names.size() != 1 || result.rows.size() != 1 || result.rows.front().size() != 1 || !result.rows.front().front()
         || result.rows.front().front()->empty())
@@ -914,15 +913,13 @@ AdbcStatusCode ConnectionGetObjects(
         bool first_cat = true;
         addFilter(cat_sql, "table_catalog", catalog_filter, first_cat);
         cat_sql += " ORDER BY table_catalog";
-        std::string err = executeAndRead(conn, cat_sql, tables_result);
-        if (!err.empty())
-            return SetError(error, ADBC_STATUS_IO, "GetObjects (catalogs): " + err);
+        if (Status status = executeAndRead(conn, cat_sql, tables_result); !status.ok())
+            return SetError(error, status.code, "GetObjects (catalogs): " + status.message);
     }
     else if (include_tables || depth == ADBC_OBJECT_DEPTH_DB_SCHEMAS)
     {
-        std::string err = executeAndRead(conn, tables_sql, tables_result);
-        if (!err.empty())
-            return SetError(error, ADBC_STATUS_IO, "GetObjects (tables): " + err);
+        if (Status status = executeAndRead(conn, tables_sql, tables_result); !status.ok())
+            return SetError(error, status.code, "GetObjects (tables): " + status.message);
     }
 
     // ---- Query information_schema.columns (depth=ALL) ----
@@ -941,9 +938,8 @@ AdbcStatusCode ConnectionGetObjects(
         addFilter(cols_sql, "column_name", column_name_filter, first2);
         cols_sql += " ORDER BY table_catalog, table_schema, table_name, ordinal_position";
 
-        std::string err = executeAndRead(conn, cols_sql, cols_result);
-        if (!err.empty())
-            return SetError(error, ADBC_STATUS_IO, "GetObjects (columns): " + err);
+        if (Status status = executeAndRead(conn, cols_sql, cols_result); !status.ok())
+            return SetError(error, status.code, "GetObjects (columns): " + status.message);
     }
 
     // ---- Group into CatalogRow hierarchy ----

@@ -122,12 +122,16 @@ trusted (`src/HttpClient.cpp`, `applySessionUpdatesIfSuccess`).
 
 A query's result is streamed: `ExecuteQuery` returns as soon as the server starts
 answering, and each record batch is downloaded when you ask for it. Until the stream
-is **read to the end** (past its last batch) or **released**, it still uses the
-connection, and any other call on that connection that sends a request fails with
-`ADBC_STATUS_INVALID_STATE` without sending anything. Such calls are another
-`ExecuteQuery`/`ExecuteUpdate` (on any statement), `Commit`, `Rollback`, turning
-autocommit back on, `GetParameterSchema`, `GetInfo`, `GetObjects`, `GetTableSchema`,
-and reading `adbc.connection.catalog` / `adbc.connection.db_schema`.
+is **read to the end** (past its last batch), **fails** (a timeout, a broken
+connection, a query error) or is **released**, it still uses the connection. Any
+other call on that connection that needs the server fails with
+`ADBC_STATUS_INVALID_STATE` without sending anything: an `ExecuteQuery`/`ExecuteUpdate`
+on another statement, `Commit`, `Rollback`, turning autocommit back on,
+`GetParameterSchema`, `GetObjects`, `GetTableSchema`, `GetInfo` asking for the vendor
+version, and reading `adbc.connection.catalog` / `adbc.connection.db_schema`.
+
+Executing the **same statement** again is the exception: as ADBC specifies, that
+replaces its previous result. The old stream is abandoned, and reading it fails.
 
 To run something else first, finish or close the result. In Python's dbapi:
 

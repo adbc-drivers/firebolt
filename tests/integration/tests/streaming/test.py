@@ -28,7 +28,7 @@ import adbc_driver_manager
 import pyarrow as pa
 import pytest
 from conftest import ADBC_DRIVER_PATH
-from helpers.mock_firebolt_server import Pause
+from helpers.mock_firebolt_server import Disconnect, Pause
 
 SCHEMA = pa.schema([("x", pa.int64())])
 END_OF_STREAM = b"\xff\xff\xff\xff\x00\x00\x00\x00"
@@ -189,6 +189,85 @@ def test_a_stream_read_to_the_end_frees_the_connection(mock_server, conn_to_mock
         assert _execute(other).read_all().column(0).to_pylist() == [2]
 
 
+def test_error_text_before_a_broken_connection_is_reported(mock_server, conn_to_mock):
+    """The error text and the connection breaking arrive together: the text is
+    still read, and reported, before the broken transfer."""
+    gate, closed = threading.Event(), threading.Event()
+    mock_server.queue(
+        chunks=[_schema(), _batch(1), gate, ERROR_TRAILER, Disconnect(closed)]
+    )
+
+    with _statement(conn_to_mock) as stmt:
+        reader = _execute(stmt)
+        assert _values(reader.read_next_batch()) == [1]
+        # Nothing reads while the server sends the text and closes, so the driver
+        # finds both waiting at its next read.
+        gate.set()
+        assert closed.wait(timeout=10)
+        with pytest.raises(Exception, match="Division by zero"):
+            reader.read_next_batch()
+
+
+def test_executing_a_statement_again_replaces_its_open_result(
+    mock_server, conn_to_mock
+):
+    """ADBC: a new execution invalidates the statement's previous result.  Its
+    stream is abandoned rather than blocking the connection."""
+    gate = threading.Event()
+    mock_server.queue(chunks=[_schema(), _batch(1), gate, _batch(2), END_OF_STREAM])
+    mock_server.queue(chunks=[_schema(), _batch(7), END_OF_STREAM])
+    try:
+        with _statement(conn_to_mock) as stmt:
+            first = _execute(stmt)
+            assert _values(first.read_next_batch()) == [1]
+
+            second = _execute(stmt)
+            assert second.read_all().column(0).to_pylist() == [7]
+            with pytest.raises(Exception, match="replaced by a new execution"):
+                first.read_next_batch()
+    finally:
+        gate.set()
+
+
+def test_a_failed_stream_frees_the_connection(mock_server, connect_to_mock):
+    """After a stream fails (here: a timeout), the connection is usable again
+    without the reader being released: the usual recovery, a rollback, works."""
+    connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
+    connection.set_options(**{"adbc.connection.autocommit": "false"})
+    never_answers = threading.Event()
+    mock_server.queue()  # BEGIN
+    mock_server.queue(chunks=[_schema(), _batch(1), never_answers, END_OF_STREAM])
+    try:
+        with _statement(connection) as stmt:
+            reader = _execute(stmt)
+            assert _values(reader.read_next_batch()) == [1]
+            with pytest.raises(Exception, match="firebolt.timeout_sec"):
+                reader.read_next_batch()
+
+            connection.rollback()
+            assert mock_server.last_request.body == b"ROLLBACK"
+    finally:
+        never_answers.set()
+
+
+def test_get_info_that_sends_nothing_works_while_a_stream_is_open(
+    mock_server, conn_to_mock
+):
+    gate = threading.Event()
+    mock_server.queue(chunks=[_schema(), _batch(1), gate, END_OF_STREAM])
+    try:
+        with _statement(conn_to_mock) as stmt:
+            reader = _execute(stmt)
+            assert _values(reader.read_next_batch()) == [1]
+
+            info = conn_to_mock.get_info([adbc_driver_manager.AdbcInfoCode.DRIVER_NAME])
+            names = pa.RecordBatchReader._import_from_c(info.address).read_all()
+            assert names.num_rows == 1
+            assert len(mock_server.captured) == 1, "GetInfo sent a request"
+    finally:
+        gate.set()
+
+
 def test_releasing_an_unfinished_stream(mock_server, conn_to_mock):
     gate = threading.Event()
     mock_server.queue(chunks=[_schema(), _batch(1), gate, _batch(2), END_OF_STREAM])
@@ -235,6 +314,15 @@ def test_timeout_does_not_bound_a_steady_stream(mock_server, connect_to_mock):
 
     with _statement(connection) as stmt:
         assert _execute(stmt).read_all().column(0).to_pylist() == [1, 2]
+
+
+def test_a_huge_timeout_means_no_limit(mock_server, connect_to_mock):
+    """A timeout far beyond any real wait must not overflow into an instant one."""
+    connection = connect_to_mock(**{"firebolt.timeout_sec": "10000000000"})
+    mock_server.queue(chunks=[_schema(), Pause(0.3), _batch(1), END_OF_STREAM])
+
+    with _statement(connection) as stmt:
+        assert _execute(stmt).read_all().column(0).to_pylist() == [1]
 
 
 def test_timeout_does_not_count_the_callers_time(mock_server, connect_to_mock):
