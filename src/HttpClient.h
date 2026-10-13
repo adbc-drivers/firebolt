@@ -14,8 +14,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -88,6 +92,34 @@ inline bool applySessionUpdatesIfSuccess(std::unordered_map<std::string, std::st
     return changed;
 }
 
+// The Arrow IPC part of an ingest upload, handed to libcurl a slice at a time
+// (curl_mime_data_cb) so it is never copied.  Seeking lets libcurl send the
+// request again, for the FB2 401 retry.  Defined inline so unit tests can call it
+// without re-exporting symbols from the hidden-visibility shared library.
+struct UploadPayload
+{
+    std::span<const uint8_t> bytes;
+    size_t offset = 0;
+
+    static size_t read(char * buffer, size_t size, size_t nitems, void * payload)
+    {
+        auto * upload = static_cast<UploadPayload *>(payload);
+        const size_t length = std::min(size * nitems, upload->bytes.size() - upload->offset);
+        std::copy_n(upload->bytes.begin() + static_cast<std::ptrdiff_t>(upload->offset), length, buffer);
+        upload->offset += length;
+        return length;
+    }
+
+    static int seek(void * payload, curl_off_t offset, int origin)
+    {
+        auto * upload = static_cast<UploadPayload *>(payload);
+        if (origin != SEEK_SET || offset < 0 || static_cast<uint64_t>(offset) > upload->bytes.size())
+            return CURL_SEEKFUNC_FAIL;
+        upload->offset = static_cast<size_t>(offset);
+        return CURL_SEEKFUNC_OK;
+    }
+};
+
 // A request whose response has started: the status and headers in `response`,
 // and, when it succeeded, the body still to be read.
 struct StartedResponse
@@ -115,12 +147,11 @@ public:
     // SELECT / DDL, with the whole body read into the response.
     HttpResponse executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params);
 
-    // INSERT with Arrow IPC payload.  The byte buffer is borrowed for the
-    // duration of the call — libcurl's curl_mime_data copies the bytes into
-    // its own storage, so no ownership transfer is needed.
+    // INSERT with Arrow IPC payload.  The bytes are borrowed for the duration of
+    // the call and uploaded from where they are, not copied.
     HttpResponse executeInsert(
         const std::string & sql,
-        const std::vector<uint8_t> & arrow_ipc_bytes,
+        std::span<const uint8_t> arrow_ipc_bytes,
         const std::unordered_map<std::string, std::string> & session_params);
 
     // Whether a response from startQuery still holds the connection's handles.  A

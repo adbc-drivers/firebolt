@@ -205,9 +205,7 @@ HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unorde
 }
 
 HttpResponse HttpClient::executeInsert(
-    const std::string & sql,
-    const std::vector<uint8_t> & arrow_ipc_bytes,
-    const std::unordered_map<std::string, std::string> & session_params)
+    const std::string & sql, std::span<const uint8_t> arrow_ipc_bytes, const std::unordered_map<std::string, std::string> & session_params)
 {
     CURL * handle = takeHandle();
     if (!handle)
@@ -232,7 +230,9 @@ HttpResponse HttpClient::executeInsert(
     curl_mime_name(arrow_part, "data.arrow");
     curl_mime_filename(arrow_part, "data.arrow");
     curl_mime_type(arrow_part, "application/octet-stream");
-    curl_mime_data(arrow_part, reinterpret_cast<const char *>(arrow_ipc_bytes.data()), arrow_ipc_bytes.size());
+    UploadPayload payload{arrow_ipc_bytes};
+    curl_mime_data_cb(
+        arrow_part, static_cast<curl_off_t>(arrow_ipc_bytes.size()), UploadPayload::read, UploadPayload::seek, nullptr, &payload);
 
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 

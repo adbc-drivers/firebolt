@@ -394,6 +394,34 @@ def test_a_401_re_authenticates_once_and_retries(mock_server, client_id):
         assert retry.body == first.body
 
 
+def test_a_401_on_an_ingest_retries_the_whole_upload(mock_server, client_id):
+    """The retried upload carries the same payload, though libcurl reads it from
+    the driver's buffer rather than from a copy of its own."""
+    marker = "ingest-payload-" + uuid.uuid4().hex
+    data = pa.record_batch({"label": pa.array([marker] * 1000)})
+    _queue_bootstrap(mock_server, token="eyJ.tok.1")
+    with _Connected(_named_options(mock_server, client_id)) as conn:
+        mock_server.reset()
+        mock_server.queue(status=401, body=b"Unauthorized")
+        mock_server.queue(**_token_response("eyJ.tok.2"))
+        mock_server.queue()
+        with adbc_driver_manager.AdbcStatement(conn) as stmt:
+            stmt.set_options(
+                **{
+                    "adbc.ingest.target_table": "t",
+                    "adbc.ingest.mode": "adbc.ingest.mode.append",
+                }
+            )
+            stmt.bind(data)
+            stmt.execute_update()
+        first, exchange, retry = mock_server.captured
+        assert _parsed(exchange)[0] == "/oauth/token"
+        assert retry.headers["Authorization"] == "Bearer eyJ.tok.2"
+        assert marker.encode() in first.body
+        assert len(first.body) > 1000 * len(marker)
+        assert retry.body == first.body
+
+
 def test_a_second_401_is_surfaced(mock_server, client_id):
     _queue_bootstrap(mock_server)
     with _Connected(_named_options(mock_server, client_id)) as conn:
