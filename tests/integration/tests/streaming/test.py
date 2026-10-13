@@ -20,6 +20,7 @@ response in chunks — pausing it, or ending it with the error text Firebolt
 appends when a query fails after its 200 — to observe that.
 """
 
+import resource
 import threading
 import time
 import urllib.parse
@@ -28,6 +29,7 @@ import adbc_driver_manager
 import pyarrow as pa
 import pytest
 from conftest import ADBC_DRIVER_PATH
+from helpers.mock_firebolt_server import Pause
 
 SCHEMA = pa.schema([("x", pa.int64())])
 END_OF_STREAM = b"\xff\xff\xff\xff\x00\x00\x00\x00"
@@ -84,18 +86,24 @@ def _statement(conn):
 
 
 def test_first_batch_arrives_before_the_response_ends(mock_server, conn_to_mock):
-    mock_server.queue(chunks=[_schema(), _batch(1, 2), 5.0, _batch(3), END_OF_STREAM])
+    gate = threading.Event()
+    mock_server.queue(chunks=[_schema(), _batch(1, 2), gate, _batch(3), END_OF_STREAM])
 
     with _statement(conn_to_mock) as stmt:
-        started = time.monotonic()
-        reader = _execute(stmt)
-        first = reader.read_next_batch()
-        elapsed = time.monotonic() - started
+        try:
+            # The server holds the rest of the response until the gate opens, so
+            # a driver that buffered the whole response would block here (until
+            # the mock gives up waiting) instead of returning the first batch.
+            started = time.monotonic()
+            reader = _execute(stmt)
+            first = reader.read_next_batch()
+            elapsed = time.monotonic() - started
+            assert not gate.is_set()
+        finally:
+            gate.set()
 
         assert _values(first) == [1, 2]
-        assert elapsed < 3, (
-            f"the first batch took {elapsed:.1f}s: the response was buffered"
-        )
+        assert elapsed < 10, f"the first batch took {elapsed:.1f}s: it was buffered"
         assert _values(reader.read_next_batch()) == [3]
         with pytest.raises(StopIteration):
             reader.read_next_batch()
@@ -198,37 +206,36 @@ def test_releasing_an_unfinished_stream(mock_server, conn_to_mock):
         gate.set()
 
 
+# The timeout tests below need real time to pass: the option counts whole
+# seconds, so each takes a little over one.
+
+
 def test_timeout_bounds_the_wait_for_the_server(mock_server, connect_to_mock):
     connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
-    mock_server.queue(chunks=[3.0, _schema(), _batch(1), END_OF_STREAM])
+    never_answers = threading.Event()
+    mock_server.queue(chunks=[never_answers, _schema(), _batch(1), END_OF_STREAM])
 
-    with (
-        _statement(connection) as stmt,
-        pytest.raises(
-            adbc_driver_manager.OperationalError, match="firebolt.timeout_sec"
-        ),
-    ):
-        _execute(stmt)
+    try:
+        with (
+            _statement(connection) as stmt,
+            pytest.raises(
+                adbc_driver_manager.OperationalError, match="firebolt.timeout_sec"
+            ),
+        ):
+            _execute(stmt)
+    finally:
+        never_answers.set()
 
 
 def test_timeout_does_not_bound_a_steady_stream(mock_server, connect_to_mock):
     """No pause is longer than the timeout, though the whole response is."""
     connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
     mock_server.queue(
-        chunks=[
-            _schema(),
-            _batch(1),
-            0.6,
-            _batch(2),
-            0.6,
-            _batch(3),
-            0.6,
-            END_OF_STREAM,
-        ]
+        chunks=[_schema(), _batch(1), Pause(0.6), _batch(2), Pause(0.6), END_OF_STREAM]
     )
 
     with _statement(connection) as stmt:
-        assert _execute(stmt).read_all().column(0).to_pylist() == [1, 2, 3]
+        assert _execute(stmt).read_all().column(0).to_pylist() == [1, 2]
 
 
 def test_timeout_does_not_count_the_callers_time(mock_server, connect_to_mock):
@@ -238,7 +245,7 @@ def test_timeout_does_not_count_the_callers_time(mock_server, connect_to_mock):
     with _statement(connection) as stmt:
         reader = _execute(stmt)
         assert _values(reader.read_next_batch()) == [1]
-        time.sleep(2)
+        time.sleep(1.5)  # longer than the timeout, spent by the caller
         assert _values(reader.read_next_batch()) == [2]
 
 
@@ -253,3 +260,26 @@ def test_large_result_arrives_in_batches(conn):
             total += batch.num_rows
     assert total == rows
     assert batches > 1
+
+
+def _peak_rss_bytes() -> int:
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KiB on Linux
+
+
+def test_large_result_is_not_held_in_memory(conn):
+    """Against the real engine: reading a large result batch by batch, dropping
+    each batch, keeps the process's peak memory far below the result's size.  A
+    driver that buffered the response would hold all of it (twice, before)."""
+    rows = 40_000_000
+    result_bytes = rows * 8  # one BIGINT column: ~320 MB of Arrow data
+    with _statement(conn) as stmt:
+        before = _peak_rss_bytes()  # before execute: a buffering driver reads there
+        reader = _execute(stmt, f"SELECT i FROM generate_series(1, {rows}) AS g(i)")
+        total = 0
+        for batch in reader:
+            total += batch.num_rows
+        growth = _peak_rss_bytes() - before
+    assert total == rows
+    assert growth < result_bytes // 4, (
+        f"peak memory grew by {growth >> 20} MiB reading a {result_bytes >> 20} MiB result"
+    )

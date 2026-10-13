@@ -164,7 +164,7 @@ Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & 
         if (receive(error_message) != CURLE_OK)
             return {ADBC_STATUS_IO, error_message};
     }
-    bytes_read = std::min(size, received.size() - consumed);
+    bytes_read = (std::min)(size, received.size() - consumed);
     memcpy(buffer, received.data() + consumed, bytes_read);
     consumed += bytes_read;
     return {};

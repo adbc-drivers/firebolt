@@ -29,11 +29,20 @@ Usage from a test:
         last = mock_server.last_request
         assert "database=evil" not in last.path
 
-A response can also be streamed with `chunks=[...]` instead of `body=`: it is
-sent with `Transfer-Encoding: chunked`, each bytes item flushed as it comes.  A
-`threading.Event` item pauses the response until the test sets it, and a number
-pauses it for that many seconds — so a test can observe what the driver does
-with a response that has started but not finished.
+A response can also be streamed with `chunks=[...]` instead of `body=`, so a
+test can observe what the driver does with a response that has started but not
+finished.  Each item of the list is one `Chunk`:
+
+    bytes            sent at once, as one chunk of `Transfer-Encoding: chunked`
+    threading.Event  the response waits until the test sets it
+    Pause(seconds)   the response waits that long — only for tests about time,
+                     such as timeouts; a test that just needs the response to
+                     stop until it says so uses an Event
+
+    gate = threading.Event()
+    mock_server.queue(chunks=[schema, batch1, gate, batch2, end_of_stream])
+    # ... read batch1 while the server is held at the gate ...
+    gate.set()
 """
 
 import dataclasses
@@ -48,6 +57,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Iterable
+from typing import TypeAlias
 
 
 @dataclasses.dataclass
@@ -58,13 +68,24 @@ class CapturedRequest:
     body: bytes
 
 
+@dataclasses.dataclass(frozen=True)
+class Pause:
+    """A chunk item: the streamed response waits `seconds` before going on."""
+
+    seconds: float
+
+
+# One item of a streamed response; see the module docstring.
+Chunk: TypeAlias = bytes | threading.Event | Pause
+
+
 @dataclasses.dataclass
 class _QueuedResponse:
     status: int
     body: bytes
     headers: list  # list of (name, value) tuples — duplicates allowed
-    # Streamed instead of `body` when set: bytes, threading.Event or seconds.
-    chunks: list | None = None
+    # Streamed instead of `body` when set.
+    chunks: list[Chunk] | None = None
 
 
 class MockFireboltServer:
@@ -125,7 +146,15 @@ class MockFireboltServer:
                     self.wfile.write(response.body)
 
             def _send_chunked(self, response: _QueuedResponse):
+                """Stream `response.chunks` the way Firebolt streams a result.
+
+                With chunked transfer coding (RFC 9112 §7.1) the body has no
+                Content-Length: it is a series of chunks, each its size in hex
+                and CRLF, then the data and CRLF, ended by a zero-size chunk.
+                The client sees each chunk as soon as it is flushed, so pausing
+                between them leaves a response started but not finished."""
                 # Chunked transfer coding needs an HTTP/1.1 status line.
+                # One response per connection keeps the mock simple.
                 self.protocol_version = "HTTP/1.1"
                 self.close_connection = True
                 self.send_response(response.status)
@@ -137,12 +166,17 @@ class MockFireboltServer:
                 try:
                     for item in response.chunks:
                         if isinstance(item, threading.Event):
+                            # A bound, so a test that fails before setting its
+                            # gate does not leave this thread waiting forever.
                             item.wait(timeout=60)
-                        elif isinstance(item, (int, float)):
-                            time.sleep(item)
-                        elif item:
+                        elif isinstance(item, Pause):
+                            time.sleep(item.seconds)
+                        elif item:  # an empty chunk would end the body early
+                            # One chunk: "<size in hex>\r\n<data>\r\n".
                             self.wfile.write(b"%x\r\n%s\r\n" % (len(item), item))
                             self.wfile.flush()
+                    # The zero-size last chunk, then the empty line that ends
+                    # the (absent) trailer section: the body is complete.
                     self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
@@ -194,7 +228,7 @@ class MockFireboltServer:
         status: int = 200,
         body: bytes = b"",
         headers: Iterable[tuple] = (),
-        chunks: Iterable | None = None,
+        chunks: Iterable[Chunk] | None = None,
     ):
         """Queue one response to be served on the next request.
 
