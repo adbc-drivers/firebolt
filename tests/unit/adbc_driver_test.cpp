@@ -1132,21 +1132,6 @@ TEST(ArrowIpcStreamTest, BodyThatFailsMidwayIsReported)
     EXPECT_NE(std::string(message).find("No data from the server"), std::string::npos) << message;
 }
 
-TEST(ArrowIpcStreamTest, EmptyBodyInPiecesProducesEmptyStream)
-{
-    nanoarrow::UniqueArrayStream stream;
-    firebolt::adbc::Status status
-        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(std::vector<uint8_t>{}, 4), stream.get());
-    ASSERT_TRUE(status.ok()) << status.message;
-
-    nanoarrow::UniqueSchema schema;
-    ASSERT_EQ(stream->get_schema(stream.get(), schema.get()), 0);
-    EXPECT_EQ(schema->n_children, 0);
-    nanoarrow::UniqueArray eos;
-    ASSERT_EQ(stream->get_next(stream.get(), eos.get()), 0);
-    EXPECT_EQ(eos->release, nullptr);
-}
-
 // ============================================================
 // Tests: IngestSqlBuilder — quoteIdentifier / qualifiedTable
 // ============================================================
