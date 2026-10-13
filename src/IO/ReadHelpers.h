@@ -32,7 +32,7 @@ Status readFully(IReadBuffer & in, uint8_t * buffer, size_t size, size_t & bytes
 // Append the rest of `in` to `out` (a std::string or std::vector<uint8_t>),
 // stopping once `out` holds `max_size` bytes; what is left past that stays unread.
 template <typename Bytes>
-Status readToEnd(IReadBuffer & in, Bytes & out, size_t max_size = std::numeric_limits<size_t>::max())
+Status readToEnd(IReadBuffer & in, Bytes & out, size_t max_size = (std::numeric_limits<size_t>::max)())
 {
     constexpr size_t chunk_size = 64 * 1024;
     while (out.size() < max_size)
