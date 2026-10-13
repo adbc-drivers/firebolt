@@ -1371,6 +1371,19 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
                     parameter_response_bodies.push_back(std::move(resp.body));
             }
         }
+        else if (out)
+        {
+            // The result the caller reads is streamed: this returns once the response
+            // starts, with its status and session updates known.
+            StartedResponse started = conn->http->startQuery(sql, conn->session_params);
+            ApplySessionUpdates(conn, started.response);
+            if (!started.response.isSuccess())
+                return HttpRespToStatus(started.response, error);
+            std::string err = ExportIpcBodyAsArrowStream(std::move(started.body), out);
+            if (!err.empty())
+                return SetError(error, ADBC_STATUS_IO, err);
+            return ADBC_STATUS_OK;
+        }
         else
         {
             resp = conn->http->executeQuery(sql, conn->session_params);

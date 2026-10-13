@@ -15,11 +15,15 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <curl/curl.h>
+
+#include "CurlHandlePool.h"
+#include "HttpResponseStream.h"
 
 namespace firebolt::adbc
 {
@@ -81,18 +85,29 @@ inline bool applySessionUpdatesIfSuccess(std::unordered_map<std::string, std::st
     return changed;
 }
 
+// A request whose response has started: the status and headers in `response`,
+// and, when it succeeded, the body still to be read.
+struct StartedResponse
+{
+    HttpResponse response;
+    std::unique_ptr<HttpResponseStream> body;
+};
+
 class HttpClient
 {
 public:
     // Borrows the owning connection (lifetime guaranteed by its unique_ptr<HttpClient>);
     // token, url, database, and timeout are read live on every request — no internal copies.
     explicit HttpClient(const FireboltConnection & conn);
-    ~HttpClient();
 
     HttpClient(const HttpClient &) = delete;
     HttpClient & operator=(const HttpClient &) = delete;
 
-    // SELECT / DDL
+    // SELECT / DDL, returning once the response starts.  The body is read as the
+    // caller asks for it, and may outlive this client and its connection.
+    StartedResponse startQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params);
+
+    // SELECT / DDL, with the whole body read into the response.
     HttpResponse executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params);
 
     // INSERT with Arrow IPC payload.  The byte buffer is borrowed for the
@@ -104,18 +119,18 @@ public:
         const std::unordered_map<std::string, std::string> & session_params);
 
 private:
-    CURL * handle = nullptr;
+    std::shared_ptr<CurlHandlePool> handle_pool = std::make_shared<CurlHandlePool>();
     const FireboltConnection & fb_conn;
 
-    std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
+    std::string buildUrl(CURL * handle, const std::unordered_map<std::string, std::string> & session_params) const;
     static curl_slist * buildAuthHeader(const std::string & token);
-    void applyTlsOptions() const;
-    // Sends the request already configured on handle and reads the response.
-    // In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
-    void sendWithAuthRetry(HttpResponse & resp, const char * content_type);
-    void parseResponseHeaders(HttpResponse & resp) const;
-
-    static size_t writeBodyCallback(char * ptr, size_t size, size_t nmemb, void * userdata);
+    void applyTlsOptions(CURL * handle) const;
+    // Sends the request already configured on `handles` and waits for its response
+    // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
+    StartedResponse send(PooledCurl handles, const char * content_type, long idle_timeout_sec);
+    void parseResponseHeaders(CURL * handle, HttpResponse & resp) const;
+    // Reads the rest of a started response into its `body`.
+    static HttpResponse readWholeResponse(StartedResponse started);
 };
 
 } // namespace firebolt::adbc

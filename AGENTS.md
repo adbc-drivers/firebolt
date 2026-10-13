@@ -188,6 +188,15 @@ under "Other environments".
 
 - **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with the SQL
   as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
+- **Results stream**: ExecuteQuery returns once the response starts (status and
+  headers known); `HttpResponseStream` pumps its own `curl_multi` handle only while a
+  reader waits for bytes, so nothing is buffered beyond a socket read. A query that
+  fails after its 200 ends the body with error text in place of the next IPC message;
+  it is told apart by the missing `0xFFFFFFFF` continuation marker. `timeout_sec`
+  bounds each wait for the server, not the request.
+- **Handles**: a connection's requests reuse one pooled easy+multi pair (and its
+  HTTP connection); a request made while a result stream holds it gets a fresh pair,
+  so an open stream never blocks the connection.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /

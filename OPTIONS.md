@@ -45,7 +45,7 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 | `firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
 | `firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
 | `firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
-| `firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
+| `firebolt.timeout_sec` | no | `0` | Whole seconds. For a query, the longest the driver waits for the server to send more of its response — before the result starts, or between parts of it. Time your application spends between reading batches does not count. For an ingest upload, the total request time. `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
 
 ### `firebolt://` URIs
 
@@ -342,7 +342,7 @@ today's names are stable and which are already superseded.
 |-------|-----------|------|
 | `uri` | `host` | A `firebolt://` URI already carries the host, database and `ssl_mode`; the `http(s)://` form encodes the transport in the scheme instead. |
 | `firebolt.database` | `database` | Rename only. |
-| `firebolt.timeout_sec` | `query_timeout` | Rename only. |
+| `firebolt.timeout_sec` | `query_timeout` | Rename; for a query it bounds each wait for the server, not the whole request. |
 | `firebolt.token` | *(none)* | The spec has no connection field for a raw JWT: it comes from the `FIREBOLT_TOKEN` environment variable. This key will be removed. |
 | — | `username` / `password` | OAuth `client_id` / `client_secret` for the `client_credentials` grant. Not implemented yet. |
 | — | `engine` | Engine selector, sent per request. Not implemented yet. |

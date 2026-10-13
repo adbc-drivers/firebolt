@@ -19,7 +19,6 @@
 #include "fb2/Fb2LegacyMode.h"
 
 #include <cstring>
-#include <stdexcept>
 
 #include <curl/curl.h>
 
@@ -42,26 +41,9 @@ namespace
 
 HttpClient::HttpClient(const FireboltConnection & conn) : fb_conn(conn)
 {
-    handle = curl_easy_init();
-    if (!handle)
-        throw std::runtime_error("Failed to initialize curl handle");
 }
 
-HttpClient::~HttpClient()
-{
-    if (handle)
-        curl_easy_cleanup(handle);
-}
-
-size_t HttpClient::writeBodyCallback(char * ptr, size_t size, size_t nmemb, void * userdata)
-{
-    auto * body = static_cast<std::vector<uint8_t> *>(userdata);
-    const size_t total = size * nmemb;
-    body->insert(body->end(), ptr, ptr + total);
-    return total;
-}
-
-std::string HttpClient::buildUrl(const std::unordered_map<std::string, std::string> & session_params) const
+std::string HttpClient::buildUrl(CURL * handle, const std::unordered_map<std::string, std::string> & session_params) const
 {
     // Use the endpoint URL verbatim — do not append a trailing slash so that
     // paths specified by the user (e.g. "http://host/query") are preserved.
@@ -95,7 +77,7 @@ curl_slist * HttpClient::buildAuthHeader(const std::string & token)
     return headers;
 }
 
-void HttpClient::applyTlsOptions() const
+void HttpClient::applyTlsOptions(CURL * handle) const
 {
     // Peer and host verification are libcurl's defaults and stay on; this only
     // says which CA bundle backs them.  Empty for http://.
@@ -103,7 +85,7 @@ void HttpClient::applyTlsOptions() const
         curl_easy_setopt(handle, CURLOPT_CAINFO, fb_conn.db->ca_bundle_path.c_str());
 }
 
-void HttpClient::parseResponseHeaders(HttpResponse & resp) const
+void HttpClient::parseResponseHeaders(CURL * handle, HttpResponse & resp) const
 {
     resp.reset_session = shouldResetSession(handle);
     resp.update_params = parseUpdateParameters(handle);
@@ -124,61 +106,79 @@ void HttpClient::parseResponseHeaders(HttpResponse & resp) const
     }
 }
 
-void HttpClient::sendWithAuthRetry(HttpResponse & resp, const char * content_type)
+StartedResponse HttpClient::send(PooledCurl handles, const char * content_type, long idle_timeout_sec)
 {
     // The headers are rebuilt per attempt: a retry after re-authentication must
     // carry the new token.
     for (int attempt = 0;; ++attempt)
     {
-        resp.body.clear();
         // FB2 SaaS (Legacy) mode hook: the token comes from the mode's cache.
         const std::string token = fb_conn.fb2 ? fb_conn.fb2->bearerToken() : fb_conn.token;
         curl_slist * headers = buildAuthHeader(token);
         if (content_type)
             headers = curl_slist_append(headers, content_type);
-        curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
-        resp.curl_code = curl_easy_perform(handle);
-        curl_slist_free_all(headers);
-        curl_easy_setopt(handle, CURLOPT_HTTPHEADER, nullptr);
-        curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &resp.http_code);
+
+        StartedResponse started;
+        started.body = std::make_unique<HttpResponseStream>(std::move(handles), headers, idle_timeout_sec);
+        HttpResponse & resp = started.response;
+        resp.curl_code = started.body->waitForResponse(resp.error_message);
+        curl_easy_getinfo(started.body->handle(), CURLINFO_RESPONSE_CODE, &resp.http_code);
+        if (resp.curl_code == CURLE_OK && !resp.isSuccess())
+        {
+            std::vector<uint8_t> error_body;
+            resp.curl_code = started.body->readToEnd(error_body, resp.error_message);
+            if (resp.curl_code == CURLE_OK)
+                resp.error_message.assign(error_body.begin(), error_body.end());
+        }
 
         // FB2 SaaS (Legacy) mode hook: one re-authentication and retry on 401.
         // Safe for any statement: a 401 is decided before the statement runs.
         if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate(token))
+        {
+            handles = started.body->detach();
             continue;
-        break;
+        }
+
+        parseResponseHeaders(started.body->handle(), resp);
+        if (!resp.isSuccess())
+            started.body.reset();
+        return started;
     }
-
-    if (resp.curl_code != CURLE_OK)
-        resp.error_message = std::string("curl error: ") + curl_easy_strerror(resp.curl_code);
-    else if (!resp.isSuccess())
-        resp.error_message = std::string(resp.body.begin(), resp.body.end());
-
-    parseResponseHeaders(resp);
 }
 
-HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
+HttpResponse HttpClient::readWholeResponse(StartedResponse started)
 {
-    HttpResponse resp;
+    HttpResponse resp = std::move(started.response);
+    if (started.body)
+        resp.curl_code = started.body->readToEnd(resp.body, resp.error_message);
+    return resp;
+}
 
-    std::string url = buildUrl(session_params);
+StartedResponse HttpClient::startQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
+{
+    PooledCurl handles = handle_pool->acquire();
+    CURL * handle = handles->easy;
+
+    std::string url = buildUrl(handle, session_params);
     // Append output_format for SELECT queries
     url += (url.find('?') == std::string::npos ? '?' : '&');
     url += "output_format=ArrowStream";
 
-    curl_easy_reset(handle);
     curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(handle, CURLOPT_POST, 1L);
-    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, sql.c_str());
+    // Copied: the request may outlive `sql`.
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(sql.size()));
-    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, writeBodyCallback);
-    curl_easy_setopt(handle, CURLOPT_WRITEDATA, &resp.body);
-    curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
-    applyTlsOptions();
+    curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS, sql.c_str());
+    applyTlsOptions(handle);
 
-    // Content-Type: text/plain so the server knows body is raw SQL
-    sendWithAuthRetry(resp, "Content-Type: text/plain; charset=utf-8");
-    return resp;
+    // Content-Type: text/plain so the server knows body is raw SQL.  The timeout
+    // bounds each wait for the server, not the time the caller takes to read.
+    return send(std::move(handles), "Content-Type: text/plain; charset=utf-8", fb_conn.db->timeout_sec);
+}
+
+HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
+{
+    return readWholeResponse(startQuery(sql, session_params));
 }
 
 HttpResponse HttpClient::executeInsert(
@@ -186,16 +186,13 @@ HttpResponse HttpClient::executeInsert(
     const std::vector<uint8_t> & arrow_ipc_bytes,
     const std::unordered_map<std::string, std::string> & session_params)
 {
-    HttpResponse resp;
+    PooledCurl handles = handle_pool->acquire();
+    CURL * handle = handles->easy;
 
-    std::string url = buildUrl(session_params);
-
-    curl_easy_reset(handle);
+    std::string url = buildUrl(handle, session_params);
     curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, writeBodyCallback);
-    curl_easy_setopt(handle, CURLOPT_WRITEDATA, &resp.body);
     curl_easy_setopt(handle, CURLOPT_TIMEOUT, fb_conn.db->timeout_sec);
-    applyTlsOptions();
+    applyTlsOptions(handle);
 
     // Build multipart/form-data using curl_mime
     curl_mime * mime = curl_mime_init(handle);
@@ -215,8 +212,8 @@ HttpResponse HttpClient::executeInsert(
 
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
-    sendWithAuthRetry(resp, nullptr);
-    curl_easy_setopt(handle, CURLOPT_MIMEPOST, nullptr);
+    // CURLOPT_TIMEOUT bounds the whole upload, so no wait of its own.
+    HttpResponse resp = readWholeResponse(send(std::move(handles), nullptr, 0));
     curl_mime_free(mime);
     return resp;
 }

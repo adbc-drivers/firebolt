@@ -198,7 +198,7 @@ Set these in `db_kwargs`:
 | `uri` | **Required.** The engine endpoint, e.g. `http://localhost:3473`, or `firebolt://host[:port]/[database]`, which uses TLS unless you add `?ssl_mode=disable` ([details](OPTIONS.md#firebolt-uris)) |
 | `firebolt.database` | Database to use |
 | `firebolt.token` | Bearer token; omit when authentication is disabled |
-| `firebolt.timeout_sec` | Request timeout in seconds; `0` (default) means none |
+| `firebolt.timeout_sec` | How long to wait for the server, in seconds; `0` (default) means no limit ([details](OPTIONS.md)) |
 | `firebolt.ssl_certificate_path` | PEM CA bundle for `https://`, if not the system one |
 
 Connection and statement options are in **[OPTIONS.md](OPTIONS.md)**. These names

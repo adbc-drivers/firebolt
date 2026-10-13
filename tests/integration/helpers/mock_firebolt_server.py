@@ -28,6 +28,12 @@ Usage from a test:
         # ... drive ADBC ...
         last = mock_server.last_request
         assert "database=evil" not in last.path
+
+A response can also be streamed with `chunks=[...]` instead of `body=`: it is
+sent with `Transfer-Encoding: chunked`, each bytes item flushed as it comes.  A
+`threading.Event` item pauses the response until the test sets it, and a number
+pauses it for that many seconds — so a test can observe what the driver does
+with a response that has started but not finished.
 """
 
 import dataclasses
@@ -39,6 +45,7 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import time
 from collections import deque
 from collections.abc import Iterable
 
@@ -56,6 +63,8 @@ class _QueuedResponse:
     status: int
     body: bytes
     headers: list  # list of (name, value) tuples — duplicates allowed
+    # Streamed instead of `body` when set: bytes, threading.Event or seconds.
+    chunks: list | None = None
 
 
 class MockFireboltServer:
@@ -104,6 +113,9 @@ class MockFireboltServer:
                         if outer._queued
                         else _QueuedResponse(200, b"", [])
                     )
+                if response.chunks is not None:
+                    self._send_chunked(response)
+                    return
                 self.send_response(response.status)
                 self.send_header("Content-Length", str(len(response.body)))
                 for name, value in response.headers:
@@ -111,6 +123,30 @@ class MockFireboltServer:
                 self.end_headers()
                 if response.body:
                     self.wfile.write(response.body)
+
+            def _send_chunked(self, response: _QueuedResponse):
+                # Chunked transfer coding needs an HTTP/1.1 status line.
+                self.protocol_version = "HTTP/1.1"
+                self.close_connection = True
+                self.send_response(response.status)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("Connection", "close")
+                for name, value in response.headers:
+                    self.send_header(name, value)
+                self.end_headers()
+                try:
+                    for item in response.chunks:
+                        if isinstance(item, threading.Event):
+                            item.wait(timeout=60)
+                        elif isinstance(item, (int, float)):
+                            time.sleep(item)
+                        elif item:
+                            self.wfile.write(b"%x\r\n%s\r\n" % (len(item), item))
+                            self.wfile.flush()
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # the client stopped reading — what some tests do
 
             def do_GET(self):
                 self._serve()
@@ -153,11 +189,26 @@ class MockFireboltServer:
     # ----- test-side controls -----------------------------------------------
 
     def queue(
-        self, *, status: int = 200, body: bytes = b"", headers: Iterable[tuple] = ()
+        self,
+        *,
+        status: int = 200,
+        body: bytes = b"",
+        headers: Iterable[tuple] = (),
+        chunks: Iterable | None = None,
     ):
-        """Queue one response to be served on the next request."""
+        """Queue one response to be served on the next request.
+
+        With `chunks`, the response is streamed instead of sent as `body` (see
+        the module docstring)."""
         with self._lock:
-            self._queued.append(_QueuedResponse(status, body, list(headers)))
+            self._queued.append(
+                _QueuedResponse(
+                    status,
+                    body,
+                    list(headers),
+                    list(chunks) if chunks is not None else None,
+                )
+            )
 
     def reset(self):
         """Drop all queued responses and captured requests."""
