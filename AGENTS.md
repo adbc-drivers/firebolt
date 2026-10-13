@@ -89,6 +89,7 @@ Beyond what pre-commit and clang-tidy enforce:
 - Use library calls, not inline lambdas; wrap a long call in a named helper in the anonymous namespace.
 - Look a value up once: `if (auto * x = find(k); !x || x->empty())`.
 - One `firebolt::adbc::Status` for a status code and message.
+- `NOMINMAX` is defined on Windows, so write plain `std::min`/`std::max`, not `(std::min)`.
 - `NOLINT` only with a reason; don't reformat lines you are not changing; no build switches for features.
 
 ## Key Design Decisions

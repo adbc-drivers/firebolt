@@ -312,6 +312,12 @@ target_include_directories(adbc_driver_firebolt PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
+# <windows.h>, which curl's headers include, defines min/max macros that break
+# std::min and std::numeric_limits<T>::max(); NOMINMAX turns them off.
+if (WIN32)
+    target_compile_definitions(adbc_driver_firebolt PRIVATE NOMINMAX)
+endif ()
+
 # SYSTEM so nlohmann/json's own headers are exempt from this project's warnings.
 target_include_directories(adbc_driver_firebolt SYSTEM PRIVATE ${_json_include})
 
@@ -429,6 +435,9 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
     target_compile_definitions(adbc_driver_tests PRIVATE
         FIREBOLT_ADBC_DRIVER_LIBRARY_PATH="$<TARGET_FILE:adbc_driver_firebolt>"
     )
+    if (WIN32)
+        target_compile_definitions(adbc_driver_tests PRIVATE NOMINMAX)
+    endif ()
 
     target_link_libraries(adbc_driver_tests PRIVATE
         ${_gtest_main_target}

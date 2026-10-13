@@ -49,7 +49,7 @@ ReadBufferFromHttpResponse::ReadBufferFromHttpResponse(
     std::shared_ptr<CurlHandles> handles, curl_slist * request_headers, long idle_timeout_sec)
     : handles(std::move(handles))
     , request_headers(request_headers)
-    , idle_timeout_sec((std::min)(idle_timeout_sec, MAX_IDLE_TIMEOUT_SEC))
+    , idle_timeout_sec(std::min(idle_timeout_sec, MAX_IDLE_TIMEOUT_SEC))
     , response_id(++this->handles->last_response_id)
 {
     CURL * easy = this->handles->easy;
@@ -90,7 +90,7 @@ size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t n
     const size_t total = size * nmemb;
     try
     {
-        const size_t to_caller = (std::min)(total, stream->caller_buffer_size - stream->caller_bytes);
+        const size_t to_caller = std::min(total, stream->caller_buffer_size - stream->caller_bytes);
         if (to_caller > 0)
         {
             memcpy(stream->caller_buffer + stream->caller_bytes, ptr, to_caller);
@@ -165,7 +165,7 @@ Status ReadBufferFromHttpResponse::receiveMoreBody()
                     {ADBC_STATUS_TIMEOUT, "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)"});
                 return abandoned;
             }
-            wait = (std::min)(wait, remaining);
+            wait = std::min(wait, remaining);
         }
         if (CURLMcode code = curl_multi_poll(handles->multi, nullptr, 0, static_cast<int>(wait.count()), nullptr); code != CURLM_OK)
         {
@@ -199,7 +199,7 @@ Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & 
         if (!status.ok() || bytes_read > 0)
             return status;
     }
-    bytes_read = (std::min)(size, received.size() - consumed);
+    bytes_read = std::min(size, received.size() - consumed);
     memcpy(buffer, received.data() + consumed, bytes_read);
     consumed += bytes_read;
     return {};

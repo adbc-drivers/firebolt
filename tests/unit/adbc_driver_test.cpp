@@ -1022,7 +1022,7 @@ public:
 
     firebolt::adbc::Status read(uint8_t * buffer, size_t size, size_t & bytes_read) override
     {
-        bytes_read = (std::min)({size, chunk_size, bytes.size() - offset});
+        bytes_read = std::min({size, chunk_size, bytes.size() - offset});
         if (bytes_read == 0)
             return failure_at_end;
         memcpy(buffer, bytes.data() + offset, bytes_read);
