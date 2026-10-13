@@ -20,7 +20,6 @@ response in chunks — pausing it, or ending it with the error text Firebolt
 appends when a query fails after its 200 — to observe that.
 """
 
-import resource
 import threading
 import time
 import urllib.parse
@@ -249,36 +248,56 @@ def test_timeout_does_not_count_the_callers_time(mock_server, connect_to_mock):
         assert _values(reader.read_next_batch()) == [2]
 
 
-def test_large_result_arrives_in_batches(conn):
-    rows = 5_000_000
-    with _statement(conn) as stmt:
+# The engine tests ask for small blocks (max_block_size, forwarded as a session
+# setting), so a modest result already arrives as many record batches.
+SMALL_BLOCK_ROWS = 1000
+
+
+@pytest.fixture
+def small_block_conn(conn):
+    conn.set_options(**{"firebolt.session.max_block_size": str(SMALL_BLOCK_ROWS)})
+    return conn
+
+
+def test_large_result_arrives_in_batches(small_block_conn):
+    rows = 100_000
+    with _statement(small_block_conn) as stmt:
         reader = _execute(stmt, f"SELECT i FROM generate_series(1, {rows}) AS g(i)")
-        batches = 0
+        sizes = [batch.num_rows for batch in reader]
+    assert sum(sizes) == rows
+    assert len(sizes) > 1
+    assert max(sizes) <= SMALL_BLOCK_ROWS
+
+
+def _reset_peak_rss() -> None:
+    """Make the current memory use the process's peak (Linux: VmHWM)."""
+    with open("/proc/self/clear_refs", "w") as clear_refs:
+        clear_refs.write("5")
+
+
+def _rss_kib(field: str) -> int:
+    with open("/proc/self/status") as status:
+        for line in status:
+            if line.startswith(field + ":"):
+                return int(line.split()[1])
+    raise AssertionError(f"{field} missing from /proc/self/status")
+
+
+def test_large_result_is_not_held_in_memory(small_block_conn):
+    """Against the real engine: reading a result batch by batch, dropping each
+    batch, keeps the process's peak memory far below the result's size.  A driver
+    that buffered the response would hold all of it."""
+    rows = 4_000_000
+    result_bytes = rows * 8  # one BIGINT column: ~30 MiB of Arrow data
+    with _statement(small_block_conn) as stmt:
+        # Before execute: a buffering driver reads the whole result there.
+        _reset_peak_rss()
+        before = _rss_kib("VmRSS")
+        reader = _execute(stmt, f"SELECT i FROM generate_series(1, {rows}) AS g(i)")
         total = 0
         for batch in reader:
-            batches += 1
             total += batch.num_rows
-    assert total == rows
-    assert batches > 1
-
-
-def _peak_rss_bytes() -> int:
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024  # KiB on Linux
-
-
-def test_large_result_is_not_held_in_memory(conn):
-    """Against the real engine: reading a large result batch by batch, dropping
-    each batch, keeps the process's peak memory far below the result's size.  A
-    driver that buffered the response would hold all of it (twice, before)."""
-    rows = 40_000_000
-    result_bytes = rows * 8  # one BIGINT column: ~320 MB of Arrow data
-    with _statement(conn) as stmt:
-        before = _peak_rss_bytes()  # before execute: a buffering driver reads there
-        reader = _execute(stmt, f"SELECT i FROM generate_series(1, {rows}) AS g(i)")
-        total = 0
-        for batch in reader:
-            total += batch.num_rows
-        growth = _peak_rss_bytes() - before
+        growth = (_rss_kib("VmHWM") - before) * 1024
     assert total == rows
     assert growth < result_bytes // 4, (
         f"peak memory grew by {growth >> 20} MiB reading a {result_bytes >> 20} MiB result"

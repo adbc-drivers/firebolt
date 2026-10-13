@@ -28,8 +28,9 @@ namespace firebolt::adbc
 {
 
 // The response to one request, received as it is read.  Its transfer runs on the
-// connection's multi handle and only while a reader waits for bytes, so a body is
-// never received faster than it is consumed.  The handles are the response's
+// connection's multi handle and only while a reader waits for bytes, into a buffer
+// of fixed size (like packdb's ReadBuffer): when it is full, curl is paused until
+// the reader has taken everything, so memory never grows with the body.  The handles are the response's
 // until its transfer ends or it is destroyed; until then the connection can send
 // nothing else.
 class ReadBufferFromHttpResponse final : public IReadBuffer
@@ -69,8 +70,13 @@ private:
     curl_slist * request_headers;
     bool holds_handles = true;
     long idle_timeout_sec;
-    std::vector<uint8_t> received;
-    size_t consumed = 0;
+    // Body bytes received: [position, working_end) of `memory` is not yet read.
+    // Filled only once it has been read to the end.
+    std::vector<uint8_t> memory;
+    size_t position = 0;
+    size_t working_end = 0;
+    // onBodyBytes paused the transfer for want of room in `memory`.
+    bool paused = false;
     bool finished = false;
     CURLcode transfer_result = CURLE_OK;
 };
