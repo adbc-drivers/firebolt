@@ -351,7 +351,8 @@ Status ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, Arrow
         state->fail(EIO);
         // The body failed, or held error text: an I/O error.  Otherwise the bytes
         // were not an Arrow stream.
-        return {state->body->error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO, state->last_error};
+        const AdbcStatusCode code = state->body->error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO;
+        return {code, state->last_error};
     }
 
     out->get_schema = ipcReaderGetSchema;
