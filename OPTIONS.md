@@ -133,9 +133,8 @@ version, and reading `adbc.connection.catalog` / `adbc.connection.db_schema`.
 Executing the **same statement** again is the exception: as ADBC specifies, that
 replaces its previous result. The old stream is abandoned, and reading it fails.
 
-A result stream may be read on another thread than the connection's. While that
-thread is inside a read, executing the same statement again does not abandon the
-stream; it fails with `ADBC_STATUS_INVALID_STATE` like any other request.
+A connection and its open result stream must not be used from two threads at the
+same time; serialize access to them as to any ADBC connection.
 
 To run something else first, finish or close the result. In Python's dbapi:
 

@@ -17,7 +17,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 #include <curl/curl.h>
@@ -58,10 +57,8 @@ public:
     // connection with their options kept, so the request can be sent again.
     void releaseHandles();
 
-    // From another thread than the reader's, holding `handles->mutex`: abandon
-    // this response, failing every later read with `reason`, unless it is being
-    // read right now.  Returns whether it was abandoned.
-    bool tryAbandonWhileLocked(Status reason);
+    // Release the handles and fail every later read with `reason`.
+    void abandon(Status reason);
 
     CURL * handle() const { return handles->easy; }
 
@@ -73,18 +70,10 @@ public:
 private:
     static size_t onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata);
 
-    // The *Locked members run with `reading` held.
-    Status receiveMoreBodyLocked();
-    void abandonLocked(Status reason);
-    // With `handles->mutex` held as well.
-    void releaseHandlesWhileLocked();
-
     std::shared_ptr<CurlHandles> handles;
     curl_slist * request_headers;
     long idle_timeout_sec;
     uint64_t response_id;
-    // Held while the transfer is driven, so no other thread abandons it meanwhile.
-    std::mutex reading;
     // Why reads fail from now on, once the response was abandoned.
     Status abandoned;
     // Body bytes received but not yet read, from `consumed` on.  Cleared once read,

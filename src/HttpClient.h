@@ -129,9 +129,8 @@ public:
     // fails with ADBC_STATUS_INVALID_STATE, without being sent.
     bool resultStreamOpen() const;
 
-    // Abandon the response with this id, if it still holds the handles and is not
-    // being read on another thread right now: a new execution of a statement
-    // replaces its previous result (ADBC).
+    // Abandon the response with this id, if it still holds the handles: a new
+    // execution of a statement replaces its previous result (ADBC).
     void abandonResult(uint64_t response_id);
 
 private:

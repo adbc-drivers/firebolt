@@ -18,7 +18,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <mutex>
 #include <stdexcept>
 
 namespace firebolt::adbc
@@ -51,18 +50,12 @@ ReadBufferFromHttpResponse::ReadBufferFromHttpResponse(
     , response_id(++this->handles->last_response_id)
 {
     CURL * easy = this->handles->easy;
-    {
-        std::lock_guard handles_lock(this->handles->mutex);
-        this->handles->holder = this;
-    }
+    this->handles->holder = this;
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, request_headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, onBodyBytes);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, this);
     if (CURLMcode code = curl_multi_add_handle(this->handles->multi, easy); code != CURLM_OK)
-    {
-        std::lock_guard reading_lock(reading);
-        abandonLocked(curlError(code));
-    }
+        abandon(curlError(code));
 }
 
 ReadBufferFromHttpResponse::~ReadBufferFromHttpResponse()
@@ -71,12 +64,6 @@ ReadBufferFromHttpResponse::~ReadBufferFromHttpResponse()
 }
 
 void ReadBufferFromHttpResponse::releaseHandles()
-{
-    std::lock_guard handles_lock(handles->mutex);
-    releaseHandlesWhileLocked();
-}
-
-void ReadBufferFromHttpResponse::releaseHandlesWhileLocked()
 {
     if (handles->holder != this)
         return;
@@ -88,20 +75,10 @@ void ReadBufferFromHttpResponse::releaseHandlesWhileLocked()
     handles->holder = nullptr;
 }
 
-void ReadBufferFromHttpResponse::abandonLocked(Status reason)
+void ReadBufferFromHttpResponse::abandon(Status reason)
 {
     abandoned = std::move(reason);
     releaseHandles();
-}
-
-bool ReadBufferFromHttpResponse::tryAbandonWhileLocked(Status reason)
-{
-    std::unique_lock reading_lock(reading, std::try_to_lock);
-    if (!reading_lock.owns_lock())
-        return false;
-    abandoned = std::move(reason);
-    releaseHandlesWhileLocked();
-    return true;
 }
 
 size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata)
@@ -137,12 +114,6 @@ size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t n
 // so a failed response never keeps the connection busy.
 Status ReadBufferFromHttpResponse::receiveMoreBody()
 {
-    std::lock_guard reading_lock(reading);
-    return receiveMoreBodyLocked();
-}
-
-Status ReadBufferFromHttpResponse::receiveMoreBodyLocked()
-{
     if (!abandoned.ok())
         return abandoned;
     if (consumed == received.size())
@@ -158,7 +129,7 @@ Status ReadBufferFromHttpResponse::receiveMoreBodyLocked()
         int running = 0;
         if (CURLMcode code = curl_multi_perform(handles->multi, &running); code != CURLM_OK)
         {
-            abandonLocked(curlError(code));
+            abandon(curlError(code));
             return abandoned;
         }
         int queued = 0;
@@ -184,7 +155,7 @@ Status ReadBufferFromHttpResponse::receiveMoreBodyLocked()
             const long long waited_sec = std::chrono::duration_cast<std::chrono::seconds>(waited).count();
             if (waited_sec >= idle_timeout_sec)
             {
-                abandonLocked(
+                abandon(
                     {ADBC_STATUS_TIMEOUT, "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)"});
                 return abandoned;
             }
@@ -196,7 +167,7 @@ Status ReadBufferFromHttpResponse::receiveMoreBodyLocked()
         }
         if (CURLMcode code = curl_multi_poll(handles->multi, nullptr, 0, static_cast<int>(wait_ms), nullptr); code != CURLM_OK)
         {
-            abandonLocked(curlError(code));
+            abandon(curlError(code));
             return abandoned;
         }
     }
@@ -209,7 +180,6 @@ Status ReadBufferFromHttpResponse::receiveMoreBodyLocked()
 
 Status ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body)
 {
-    std::lock_guard reading_lock(reading);
     if (!abandoned.ok())
         return abandoned;
     body.insert(body.end(), received.begin() + static_cast<std::ptrdiff_t>(consumed), received.end());
@@ -217,7 +187,7 @@ Status ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body)
     sink = &body;
     Status status;
     do
-        status = receiveMoreBodyLocked();
+        status = receiveMoreBody();
     while (status.ok() && !finished);
     sink = nullptr;
     return status;
@@ -225,13 +195,12 @@ Status ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body)
 
 Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & bytes_read)
 {
-    std::lock_guard reading_lock(reading);
     bytes_read = 0;
     if (!abandoned.ok())
         return abandoned;
     if (consumed == received.size())
     {
-        if (Status status = receiveMoreBodyLocked(); !status.ok())
+        if (Status status = receiveMoreBody(); !status.ok())
             return status;
     }
     bytes_read = (std::min)(size, received.size() - consumed);

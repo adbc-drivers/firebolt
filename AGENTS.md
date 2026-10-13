@@ -200,9 +200,8 @@ under "Other environments".
   transfer ends (reading past the last batch drains the body) or it is released;
   meanwhile every request fails with `ADBC_STATUS_INVALID_STATE` in `HttpClient`,
   unsent. A failed stream lets go at once; re-executing the same statement abandons
-  its own open result (`abandonResult`). A stream may be read on another thread:
-  `CurlHandles::mutex` guards handing the handles over, and a response's `reading`
-  mutex keeps it from being abandoned mid-read. Documented in OPTIONS.md.
+  its own open result (`abandonResult`). Like the connection, a stream is not
+  thread-safe. Documented in OPTIONS.md.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /

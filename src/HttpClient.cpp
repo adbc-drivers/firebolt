@@ -19,7 +19,6 @@
 #include "fb2/Fb2LegacyMode.h"
 
 #include <cstring>
-#include <mutex>
 
 #include <curl/curl.h>
 
@@ -108,14 +107,12 @@ void HttpClient::parseResponseHeaders(CURL * handle, HttpResponse & resp) const
 
 void HttpClient::abandonResult(uint64_t response_id)
 {
-    std::lock_guard handles_lock(handles->mutex);
     if (handles->holder && handles->holder->id() == response_id)
-        handles->holder->tryAbandonWhileLocked({ADBC_STATUS_INVALID_STATE, "This result was replaced by a new execution of its statement"});
+        handles->holder->abandon({ADBC_STATUS_INVALID_STATE, "This result was replaced by a new execution of its statement"});
 }
 
 bool HttpClient::resultStreamOpen() const
 {
-    std::lock_guard handles_lock(handles->mutex);
     return handles->holder != nullptr;
 }
 

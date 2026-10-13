@@ -16,7 +16,6 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
 
 #include <curl/curl.h>
 
@@ -28,15 +27,12 @@ class ReadBufferFromHttpResponse;
 // A connection's curl handles: an easy handle and the multi handle that runs its
 // transfers, which keeps the HTTP connection open from one request to the next.
 // A response is read through them until it ends, so the connection sends one
-// request at a time; `holder` is the response holding them, if any.  A response
-// may be read on another thread than the connection's: `mutex` orders handing the
-// handles over between them.
+// request at a time; `holder` is the response holding them, if any.
 struct CurlHandles
 {
     CURLM * multi = nullptr;
     CURL * easy = nullptr;
-    std::mutex mutex;
-    ReadBufferFromHttpResponse * holder = nullptr; // guarded by `mutex`
+    ReadBufferFromHttpResponse * holder = nullptr;
     // The id of the last response started on these handles.
     uint64_t last_response_id = 0;
 
