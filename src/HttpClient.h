@@ -22,7 +22,6 @@
 
 #include <curl/curl.h>
 
-#include "CurlHandles.h"
 #include "IO/ReadBufferFromHttpResponse.h"
 #include "Status.h"
 
@@ -137,9 +136,9 @@ private:
     std::shared_ptr<CurlHandles> handles = std::make_shared<CurlHandles>();
     const FireboltConnection & fb_conn;
 
-    std::string buildUrl(CURL * handle, const std::unordered_map<std::string, std::string> & session_params) const;
+    std::string buildUrl(const std::unordered_map<std::string, std::string> & session_params) const;
     static curl_slist * buildAuthHeader(const std::string & token);
-    void applyTlsOptions(CURL * handle) const;
+    void applyTlsOptions() const;
     // The response to a request made while a result stream is open.
     static StartedResponse refuseWhileResultStreamOpen();
     // The easy handle, reset for a new request; nullptr while a result stream holds
@@ -148,7 +147,7 @@ private:
     // Sends the request configured on the easy handle and waits for its response
     // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
     StartedResponse sendAndAwaitResponseStart(const char * content_type, long idle_timeout_sec);
-    void parseResponseHeaders(CURL * handle, HttpResponse & resp) const;
+    void parseResponseHeaders(HttpResponse & resp) const;
     // Reads the rest of a started response into its `body`.
     static HttpResponse readWholeResponse(StartedResponse started);
 };

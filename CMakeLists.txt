@@ -289,7 +289,6 @@ add_library(adbc_driver_firebolt SHARED
     src/HttpClient.cpp
     src/IO/ReadBufferFromHttpResponse.cpp
     src/IO/ReadHelpers.cpp
-    src/CurlHandles.cpp
     src/HttpHeaderParse.cpp
     src/ArrowIpcStream.cpp
     src/IngestSqlBuilder.cpp

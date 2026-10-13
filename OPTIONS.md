@@ -124,11 +124,9 @@ A query's result is streamed: `ExecuteQuery` returns as soon as the server start
 answering, and each record batch is downloaded when you ask for it. Until the stream
 is **read to the end** (past its last batch), **fails** (a timeout, a broken
 connection, a query error) or is **released**, it still uses the connection. Any
-other call on that connection that needs the server fails with
-`ADBC_STATUS_INVALID_STATE` without sending anything: an `ExecuteQuery`/`ExecuteUpdate`
-on another statement, `Commit`, `Rollback`, turning autocommit back on,
-`GetParameterSchema`, `GetObjects`, `GetTableSchema`, `GetInfo` asking for the vendor
-version, and reading `adbc.connection.catalog` / `adbc.connection.db_schema`.
+other call on that connection that needs the server (another statement's execute,
+`Commit`, `Rollback`, a metadata call, …) fails with `ADBC_STATUS_INVALID_STATE`
+without sending anything.
 
 Executing the **same statement** again is the exception: as ADBC specifies, that
 replaces its previous result. The old stream is abandoned, and reading it fails.

@@ -15,18 +15,8 @@
 
 #include "IO/ReadHelpers.h"
 
-#include <algorithm>
-
 namespace firebolt::adbc
 {
-
-namespace
-{
-
-    // How much each read step asks for.
-    constexpr size_t CHUNK_SIZE = 64 * 1024;
-
-} // namespace
 
 Status readFully(IReadBuffer & in, uint8_t * buffer, size_t size, size_t & bytes_read)
 {
@@ -43,25 +33,9 @@ Status readFully(IReadBuffer & in, uint8_t * buffer, size_t size, size_t & bytes
     return {};
 }
 
-Status readToEnd(IReadBuffer & in, std::string & out, size_t max_size)
-{
-    while (out.size() < max_size)
-    {
-        const size_t old_size = out.size();
-        const size_t wanted = (std::min)(CHUNK_SIZE, max_size - old_size);
-        out.resize(old_size + wanted);
-        size_t received = 0;
-        Status status = in.read(reinterpret_cast<uint8_t *>(out.data()) + old_size, wanted, received);
-        out.resize(old_size + received);
-        if (!status.ok() || received == 0)
-            return status;
-    }
-    return {};
-}
-
 Status skipToEnd(IReadBuffer & in)
 {
-    uint8_t chunk[16 * 1024]; // on the stack, so smaller than CHUNK_SIZE
+    uint8_t chunk[16 * 1024];
     for (;;)
     {
         size_t received = 0;
