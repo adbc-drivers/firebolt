@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include <curl/curl.h>
@@ -49,12 +50,18 @@ public:
     // its status and headers are then known.
     Status receiveMoreBody();
 
+    // Read the rest of the body onto the end of `body`.  curl writes it there
+    // directly, so it is copied once.
+    Status readToEnd(std::vector<uint8_t> & body);
+
     // Stop the transfer, if unfinished, and give the handles back to the
     // connection with their options kept, so the request can be sent again.
     void releaseHandles();
 
-    // Stop the transfer and fail every later read with `reason`.
-    void abandon(Status reason);
+    // From another thread than the reader's, holding `handles->mutex`: abandon
+    // this response, failing every later read with `reason`, unless it is being
+    // read right now.  Returns whether it was abandoned.
+    bool tryAbandonWhileLocked(Status reason);
 
     CURL * handle() const { return handles->easy; }
 
@@ -66,11 +73,18 @@ public:
 private:
     static size_t onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata);
 
+    // The *Locked members run with `reading` held.
+    Status receiveMoreBodyLocked();
+    void abandonLocked(Status reason);
+    // With `handles->mutex` held as well.
+    void releaseHandlesWhileLocked();
+
     std::shared_ptr<CurlHandles> handles;
     curl_slist * request_headers;
-    bool holds_handles = true;
     long idle_timeout_sec;
     uint64_t response_id;
+    // Held while the transfer is driven, so no other thread abandons it meanwhile.
+    std::mutex reading;
     // Why reads fail from now on, once the response was abandoned.
     Status abandoned;
     // Body bytes received but not yet read, from `consumed` on.  Cleared once read,
@@ -79,6 +93,10 @@ private:
     // however large the body.
     std::vector<uint8_t> received;
     size_t consumed = 0;
+    // Where curl's body pieces go instead of `received`, during readToEnd.
+    std::vector<uint8_t> * sink = nullptr;
+    // All body bytes received so far: a wait ends when this grows.
+    size_t bytes_received = 0;
     bool finished = false;
     CURLcode transfer_result = CURLE_OK;
 };

@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include "IO/IReadBuffer.h"
 #include "Status.h"
@@ -28,9 +27,6 @@ namespace firebolt::adbc
 
 // Fill `buffer` with `size` bytes from `in`, fewer only at its end.
 Status readFully(IReadBuffer & in, uint8_t * buffer, size_t size, size_t & bytes_read);
-
-// Append the rest of `in` to `out`.
-Status readToEnd(IReadBuffer & in, std::vector<uint8_t> & out);
 
 // Append the rest of `in` to `out`, stopping once `out` holds `max_size` bytes;
 // what is left past that stays unread.

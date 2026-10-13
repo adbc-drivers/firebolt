@@ -16,10 +16,10 @@
 #include "FireboltAdbcConnection.h"
 #include "FireboltAdbcDatabase.h"
 #include "HttpHeaderParse.h"
-#include "IO/ReadHelpers.h"
 #include "fb2/Fb2LegacyMode.h"
 
 #include <cstring>
+#include <mutex>
 
 #include <curl/curl.h>
 
@@ -108,8 +108,15 @@ void HttpClient::parseResponseHeaders(CURL * handle, HttpResponse & resp) const
 
 void HttpClient::abandonResult(uint64_t response_id)
 {
+    std::lock_guard handles_lock(handles->mutex);
     if (handles->holder && handles->holder->id() == response_id)
-        handles->holder->abandon({ADBC_STATUS_INVALID_STATE, "This result was replaced by a new execution of its statement"});
+        handles->holder->tryAbandonWhileLocked({ADBC_STATUS_INVALID_STATE, "This result was replaced by a new execution of its statement"});
+}
+
+bool HttpClient::resultStreamOpen() const
+{
+    std::lock_guard handles_lock(handles->mutex);
+    return handles->holder != nullptr;
 }
 
 StartedResponse HttpClient::refuseWhileResultStreamOpen()
@@ -120,8 +127,10 @@ StartedResponse HttpClient::refuseWhileResultStreamOpen()
     return refused;
 }
 
-CURL * HttpClient::resetHandle()
+CURL * HttpClient::takeHandle()
 {
+    if (resultStreamOpen())
+        return nullptr;
     curl_easy_reset(handles->easy);
     return handles->easy;
 }
@@ -146,7 +155,7 @@ StartedResponse HttpClient::sendAndAwaitResponseStart(const char * content_type,
         if (resp.transfer.ok() && !resp.isSuccess())
         {
             std::vector<uint8_t> error_body;
-            resp.transfer = readToEnd(*started.body, error_body);
+            resp.transfer = started.body->readToEnd(error_body);
             resp.error_message.assign(error_body.begin(), error_body.end());
         }
 
@@ -169,15 +178,15 @@ HttpResponse HttpClient::readWholeResponse(StartedResponse started)
 {
     HttpResponse resp = std::move(started.response);
     if (started.body)
-        resp.transfer = readToEnd(*started.body, resp.body);
+        resp.transfer = started.body->readToEnd(resp.body);
     return resp;
 }
 
 StartedResponse HttpClient::startQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
 {
-    if (resultStreamOpen())
+    CURL * handle = takeHandle();
+    if (!handle)
         return refuseWhileResultStreamOpen();
-    CURL * handle = resetHandle();
 
     std::string url = buildUrl(handle, session_params);
     // Append output_format for SELECT queries
@@ -206,9 +215,9 @@ HttpResponse HttpClient::executeInsert(
     const std::vector<uint8_t> & arrow_ipc_bytes,
     const std::unordered_map<std::string, std::string> & session_params)
 {
-    if (resultStreamOpen())
+    CURL * handle = takeHandle();
+    if (!handle)
         return refuseWhileResultStreamOpen().response;
-    CURL * handle = resetHandle();
 
     std::string url = buildUrl(handle, session_params);
     curl_easy_setopt(handle, CURLOPT_URL, url.c_str());

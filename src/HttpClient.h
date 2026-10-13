@@ -127,10 +127,11 @@ public:
     // Whether a response from startQuery still holds the connection's handles.  A
     // connection sends one request at a time, so every request made meanwhile
     // fails with ADBC_STATUS_INVALID_STATE, without being sent.
-    bool resultStreamOpen() const { return handles->holder != nullptr; }
+    bool resultStreamOpen() const;
 
-    // Abandon the response with this id, if it still holds the handles: a new
-    // execution of a statement replaces its previous result (ADBC).
+    // Abandon the response with this id, if it still holds the handles and is not
+    // being read on another thread right now: a new execution of a statement
+    // replaces its previous result (ADBC).
     void abandonResult(uint64_t response_id);
 
 private:
@@ -142,8 +143,9 @@ private:
     void applyTlsOptions(CURL * handle) const;
     // The response to a request made while a result stream is open.
     static StartedResponse refuseWhileResultStreamOpen();
-    // The easy handle, reset for a new request.
-    CURL * resetHandle();
+    // The easy handle, reset for a new request; nullptr while a result stream holds
+    // it.  Every request takes the handle here.
+    CURL * takeHandle();
     // Sends the request configured on the easy handle and waits for its response
     // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
     StartedResponse sendAndAwaitResponseStart(const char * content_type, long idle_timeout_sec);

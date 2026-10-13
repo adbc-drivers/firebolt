@@ -1310,9 +1310,6 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
     if (rows_affected)
         *rows_affected = -1;
 
-    // A new execution replaces this statement's previous result (ADBC), so a
-    // stream of it still open is abandoned rather than blocking the connection.
-    conn->http->abandonResult(fs->result_response_id);
 
     // Clear bound state on every exit path so a bound payload is consumed
     // exactly once (including failures/exceptions).
@@ -1320,6 +1317,10 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
 
     try
     {
+        // A new execution replaces this statement's previous result (ADBC), so a
+        // stream of it still open is abandoned rather than blocking the connection.
+        conn->http->abandonResult(fs->result_response_id);
+
         // Bound data is either a bulk-ingest payload or a set of query parameters,
         // told apart by whether an ingest target table was set.
         const bool has_data = fs->bound && fs->bound->data_bound;

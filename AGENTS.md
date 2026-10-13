@@ -200,11 +200,17 @@ under "Other environments".
   transfer ends (reading past the last batch drains the body) or it is released;
   meanwhile every request fails with `ADBC_STATUS_INVALID_STATE` in `HttpClient`,
   unsent. A failed stream lets go at once; re-executing the same statement abandons
-  its own open result (`abandonResult`). Documented in OPTIONS.md.
+  its own open result (`abandonResult`). A stream may be read on another thread:
+  `CurlHandles::mutex` guards handing the handles over, and a response's `reading`
+  mutex keeps it from being abandoned mid-read. Documented in OPTIONS.md.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /
-  `Firebolt-Reset-Session` response headers, applied only on a successful response.
+  `Firebolt-Reset-Session` response headers, applied only on a 2xx response (a
+  non-2xx one may come from a proxy, so its hints are untrusted). They arrive
+  before the body and are applied then, even for a streamed result that later
+  ends with error text: the server has already applied them, e.g. advanced the
+  transaction sequence, so the next request needs them.
 
 ## Authentication (Firebolt Core)
 

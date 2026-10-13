@@ -43,20 +43,6 @@ Status readFully(IReadBuffer & in, uint8_t * buffer, size_t size, size_t & bytes
     return {};
 }
 
-Status readToEnd(IReadBuffer & in, std::vector<uint8_t> & out)
-{
-    for (;;)
-    {
-        const size_t old_size = out.size();
-        out.resize(old_size + CHUNK_SIZE);
-        size_t received = 0;
-        Status status = in.read(out.data() + old_size, CHUNK_SIZE, received);
-        out.resize(old_size + received);
-        if (!status.ok() || received == 0)
-            return status;
-    }
-}
-
 Status readToEnd(IReadBuffer & in, std::string & out, size_t max_size)
 {
     while (out.size() < max_size)

@@ -250,6 +250,40 @@ def test_a_failed_stream_frees_the_connection(mock_server, connect_to_mock):
         never_answers.set()
 
 
+def test_a_batch_that_does_not_decode_frees_the_connection(mock_server, conn_to_mock):
+    """A message that starts like Arrow IPC but does not decode fails the read,
+    and the connection is free again at once, without the reader being released."""
+    undecodable = b"\xff\xff\xff\xff" + (16).to_bytes(4, "little") + b"\x00" * 16
+    gate = threading.Event()  # keeps the transfer open past the bad message
+    mock_server.queue(chunks=[_schema(), _batch(1), undecodable, gate, END_OF_STREAM])
+    mock_server.queue(chunks=[_schema(), _batch(7), END_OF_STREAM])
+
+    try:
+        with _statement(conn_to_mock) as stmt, _statement(conn_to_mock) as other:
+            reader = _execute(stmt)
+            assert _values(reader.read_next_batch()) == [1]
+            with pytest.raises(pa.ArrowException):
+                reader.read_next_batch()
+            assert _execute(other).read_all().column(0).to_pylist() == [7]
+    finally:
+        gate.set()
+
+
+def test_a_timeout_reading_the_schema_is_a_timeout(mock_server, connect_to_mock):
+    connection = connect_to_mock(**{"firebolt.timeout_sec": "1"})
+    schema = _schema()
+    never_answers = threading.Event()
+    mock_server.queue(chunks=[schema[:8], never_answers, schema[8:], END_OF_STREAM])
+
+    try:
+        with _statement(connection) as stmt:
+            with pytest.raises(adbc_driver_manager.OperationalError) as exc:
+                _execute(stmt)
+            assert exc.value.status_code == adbc_driver_manager.AdbcStatusCode.TIMEOUT
+    finally:
+        never_answers.set()
+
+
 def test_get_info_that_sends_nothing_works_while_a_stream_is_open(
     mock_server, conn_to_mock
 ):

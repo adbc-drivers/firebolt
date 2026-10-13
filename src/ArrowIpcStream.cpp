@@ -193,18 +193,25 @@ namespace
         bool at_message_start = true;
         // Whether the body had any bytes at all; DDL and zero-row results have none.
         bool body_started = false;
-        // Why the body could not be read; empty while it can.
-        std::string body_error;
+        // Why reading stopped for good: the body's own failure, its error text, or
+        // nanoarrow's.  OK while it can go on.
+        Status failure;
 
         nanoarrow::UniqueArrayStream ipc_reader;
         nanoarrow::UniqueSchema schema;
-        std::string last_error;
+        std::string last_error; // failure.message, for get_last_error
 
-        // Record why the last read failed, preferring the body's own reason.
+        // Stop for good: keep the reason, preferring the body's own, and drop the
+        // body, which gives a response's handles back to its connection at once.
         int recordFailure(int code)
         {
-            const char * reader_error = ipc_reader->get_last_error(ipc_reader.get());
-            last_error = !body_error.empty() ? body_error : reader_error ? reader_error : "Failed to read the query result";
+            if (failure.ok())
+            {
+                const char * reader_error = ipc_reader->get_last_error(ipc_reader.get());
+                failure = {ADBC_STATUS_INTERNAL, reader_error ? reader_error : "Failed to read the query result"};
+            }
+            last_error = failure.message;
+            body.reset();
             return code;
         }
     };
@@ -228,28 +235,32 @@ namespace
     ArrowErrorCode ipcInputRead(ArrowIpcInputStream * stream, uint8_t * buffer, int64_t size, int64_t * size_read, ArrowError * error)
     {
         auto * state = static_cast<IpcReaderState *>(stream->private_data);
+        *size_read = 0;
+        if (!state->body)
+            return NANOARROW_OK; // read to its end already: nothing more
         try
         {
             size_t bytes_read = 0;
             Status status = readFully(*state->body, buffer, static_cast<size_t>(size), bytes_read);
             state->body_started = state->body_started || bytes_read > 0;
             if (!status.ok())
-                state->body_error = status.message;
+                state->failure = std::move(status);
             else if (
                 state->at_message_start && bytes_read > 0
                 && (bytes_read < sizeof(CONTINUATION_MARKER) || memcmp(buffer, CONTINUATION_MARKER, sizeof(CONTINUATION_MARKER)) != 0))
-                state->body_error = "Query failed while streaming results: " + readErrorText(*state->body, buffer, bytes_read);
+                state->failure
+                    = {ADBC_STATUS_IO, "Query failed while streaming results: " + readErrorText(*state->body, buffer, bytes_read)};
             state->at_message_start = false;
             *size_read = static_cast<int64_t>(bytes_read);
         }
         catch (std::exception & ex)
         {
-            state->body_error = ex.what();
+            state->failure = {ADBC_STATUS_INTERNAL, ex.what()};
         }
 
-        if (!state->body_error.empty())
+        if (!state->failure.ok())
         {
-            ArrowErrorSet(error, "%s", state->body_error.c_str());
+            ArrowErrorSet(error, "%s", state->failure.message.c_str());
             return EIO;
         }
         return NANOARROW_OK;
@@ -269,32 +280,33 @@ namespace
     }
 
     // Decode the next record batch.  Each call reads exactly one IPC message, so
-    // the marker check in ipcInputRead sees the start of each one.  A body error
-    // is final: later calls report it again without reading.
+    // the marker check in ipcInputRead sees the start of each one.  Any failure is
+    // final: it frees the connection, and later calls report it again unread.
     int ipcReaderGetNext(ArrowArrayStream * stream, ArrowArray * out)
     {
         auto * state = static_cast<IpcReaderState *>(stream->private_data);
-        if (!state->body_error.empty())
+        if (!state->failure.ok())
             return state->recordFailure(EIO);
         state->at_message_start = true;
         const int rc = state->ipc_reader->get_next(state->ipc_reader.get(), out);
         if (rc != 0)
             return state->recordFailure(rc);
-        // After the end-of-stream marker, read the response to its end: that ends
-        // the transfer, which frees the connection for its next request.
-        if (!out->release)
+        // After the end-of-stream marker, read the response to its end and drop it:
+        // that ends the transfer, which frees the connection for its next request.
+        if (!out->release && state->body)
         {
             try
             {
                 if (Status status = skipToEnd(*state->body); !status.ok())
-                    state->body_error = status.message;
+                    state->failure = std::move(status);
             }
             catch (std::exception & ex)
             {
-                state->body_error = ex.what();
+                state->failure = {ADBC_STATUS_INTERNAL, ex.what()};
             }
-            if (!state->body_error.empty())
+            if (!state->failure.ok())
                 return state->recordFailure(EIO);
+            state->body.reset();
         }
         return 0;
     }
@@ -328,13 +340,10 @@ Status ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, Arrow
     if (state->ipc_reader->get_schema(state->ipc_reader.get(), state->schema.get()) != 0)
     {
         // DDL and zero-row results have no bytes at all, not even a schema.
-        if (!state->body_started && state->body_error.empty())
+        if (!state->body_started && state->failure.ok())
             return ExportEmptyStream(out);
         state->recordFailure(EIO);
-        // The body failed, or held error text: an I/O error.  Otherwise the bytes
-        // were not an Arrow stream.
-        const AdbcStatusCode code = state->body_error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO;
-        return {code, state->last_error};
+        return state->failure;
     }
 
     out->get_schema = ipcReaderGetSchema;
