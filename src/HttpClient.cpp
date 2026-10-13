@@ -99,8 +99,7 @@ void HttpClient::parseResponseHeaders(CURL * handle, HttpResponse & resp) const
         if (!effect.endpoint_error.empty())
         {
             // A redirect the mode refused: fail the request rather than use or drop it silently.
-            resp.curl_code = CURLE_WEIRD_SERVER_REPLY;
-            resp.error_message = effect.endpoint_error;
+            resp.transfer = {ADBC_STATUS_IO, effect.endpoint_error};
         }
         else
             resp.new_endpoint = effect.new_endpoint;
@@ -130,19 +129,18 @@ StartedResponse HttpClient::send(const char * content_type, long idle_timeout_se
         StartedResponse started;
         started.body = std::make_unique<ReadBufferFromHttpResponse>(handles, headers, idle_timeout_sec);
         HttpResponse & resp = started.response;
-        resp.curl_code = started.body->waitForResponse(resp.error_message);
+        resp.transfer = started.body->waitForResponse();
         curl_easy_getinfo(started.body->handle(), CURLINFO_RESPONSE_CODE, &resp.http_code);
-        if (resp.curl_code == CURLE_OK && !resp.isSuccess())
+        if (resp.transfer.ok() && !resp.isSuccess())
         {
             std::vector<uint8_t> error_body;
-            resp.curl_code = started.body->readToEnd(error_body, resp.error_message);
-            if (resp.curl_code == CURLE_OK)
-                resp.error_message.assign(error_body.begin(), error_body.end());
+            resp.transfer = started.body->readToEnd(error_body);
+            resp.error_message.assign(error_body.begin(), error_body.end());
         }
 
         // FB2 SaaS (Legacy) mode hook: one re-authentication and retry on 401.
         // Safe for any statement: a 401 is decided before the statement runs.
-        if (attempt == 0 && resp.curl_code == CURLE_OK && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate(token))
+        if (attempt == 0 && resp.transfer.ok() && resp.http_code == 401 && fb_conn.fb2 && fb_conn.fb2->reauthenticate(token))
         {
             started.body->releaseHandles();
             continue;
@@ -159,7 +157,7 @@ HttpResponse HttpClient::readWholeResponse(StartedResponse started)
 {
     HttpResponse resp = std::move(started.response);
     if (started.body)
-        resp.curl_code = started.body->readToEnd(resp.body, resp.error_message);
+        resp.transfer = started.body->readToEnd(resp.body);
     return resp;
 }
 

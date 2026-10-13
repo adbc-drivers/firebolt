@@ -24,6 +24,7 @@
 
 #include "CurlHandles.h"
 #include "IO/ReadBufferFromHttpResponse.h"
+#include "Status.h"
 
 namespace firebolt::adbc
 {
@@ -32,9 +33,12 @@ struct FireboltConnection;
 
 struct HttpResponse
 {
-    CURLcode curl_code = CURLE_OK;
+    // Why no complete response arrived (connection, TLS, timeout, …); OK when one
+    // did, whatever its HTTP status.
+    Status transfer;
     long http_code = 0;
     std::vector<uint8_t> body;
+    // The body of a non-2xx response, or the FB2 mode's explanation of it.
     std::string error_message;
     std::unordered_map<std::string, std::string> update_params;
     std::vector<std::string> remove_params;
@@ -42,7 +46,7 @@ struct HttpResponse
     // A new endpoint for the connection, set only by FB2 mode (Firebolt-Update-Endpoint).
     std::string new_endpoint;
 
-    bool isSuccess() const { return curl_code == CURLE_OK && http_code >= 200 && http_code < 300; }
+    bool isSuccess() const { return transfer.ok() && http_code >= 200 && http_code < 300; }
 };
 
 // Apply session-parameter mutations advertised in a response (Firebolt-Update-Parameters,

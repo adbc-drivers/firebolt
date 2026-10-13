@@ -156,14 +156,14 @@ static void emptyRelease(ArrowArrayStream * stream)
 }
 
 // A zero-column stream with no batches: the result of a body with no bytes.
-static std::string ExportEmptyStream(ArrowArrayStream * out)
+static Status ExportEmptyStream(ArrowArrayStream * out)
 {
     auto * state = new EmptyStreamState();
     int rc = ArrowSchemaInitFromType(&state->schema, NANOARROW_TYPE_STRUCT);
     if (rc != 0)
     {
         delete state;
-        return "ArrowSchemaInitFromType failed";
+        return {ADBC_STATUS_INTERNAL, "ArrowSchemaInitFromType failed"};
     }
     out->get_schema = emptyGetSchema;
     out->get_next = emptyGetNext;
@@ -320,7 +320,7 @@ namespace
 
 } // namespace
 
-std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, ArrowArrayStream * out)
+Status ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, ArrowArrayStream * out)
 {
     auto reader = std::make_unique<IpcInput>();
     reader->body = std::move(body);
@@ -330,7 +330,7 @@ std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, 
     size_t received = 0;
     Status status = reader->body->read(reader->lookahead.data(), 1, received);
     if (!status.ok())
-        return status.message;
+        return status;
     if (received == 0)
         return ExportEmptyStream(out);
 
@@ -341,7 +341,7 @@ std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, 
     {
         if (input.release)
             input.release(&input);
-        return "ArrowIpcArrayStreamReaderInit failed";
+        return {ADBC_STATUS_INTERNAL, "ArrowIpcArrayStreamReaderInit failed"};
     }
 
     // Read now, so a body that is not an Arrow stream fails here and every later
@@ -349,7 +349,9 @@ std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, 
     if (state->ipc_reader->get_schema(state->ipc_reader.get(), state->schema.get()) != 0)
     {
         state->fail(EIO);
-        return state->last_error;
+        // The body failed, or held error text: an I/O error.  Otherwise the bytes
+        // were not an Arrow stream.
+        return {state->body->error.empty() ? ADBC_STATUS_INTERNAL : ADBC_STATUS_IO, state->last_error};
     }
 
     out->get_schema = ipcReaderGetSchema;
@@ -360,12 +362,12 @@ std::string ExportIpcReadBufferAsArrowStream(std::unique_ptr<IReadBuffer> body, 
     return {};
 }
 
-std::string ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArrayStream * out)
+Status ExportIpcBytesAsArrowStream(std::vector<uint8_t> ipc_bytes, ArrowArrayStream * out)
 {
     return ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromMemory>(std::move(ipc_bytes)), out);
 }
 
-std::string ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ipc_responses, ArrowArrayStream * out)
+Status ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ipc_responses, ArrowArrayStream * out)
 {
     if (ipc_responses.empty())
         return ExportIpcBytesAsArrowStream({}, out);
@@ -374,20 +376,19 @@ std::string ExportIpcResponsesAsArrowStream(std::vector<std::vector<uint8_t>> ip
     state->streams.resize(ipc_responses.size());
     for (size_t i = 0; i < ipc_responses.size(); ++i)
     {
-        std::string error = ExportIpcBytesAsArrowStream(std::move(ipc_responses[i]), &state->streams[i]);
-        if (!error.empty())
-            return error;
+        if (Status status = ExportIpcBytesAsArrowStream(std::move(ipc_responses[i]), &state->streams[i]); !status.ok())
+            return status;
 
         nanoarrow::UniqueSchema response_schema;
         if (state->streams[i].get_schema(&state->streams[i], response_schema.get()) != 0)
-            return "Failed to read a parameter result schema";
+            return {ADBC_STATUS_INTERNAL, "Failed to read a parameter result schema"};
         if (i == 0)
         {
             ArrowSchemaMove(response_schema.get(), &state->schema);
         }
         else if (!schemasEqual(&state->schema, response_schema.get()))
         {
-            return "Parameter executions returned incompatible schemas";
+            return {ADBC_STATUS_INTERNAL, "Parameter executions returned incompatible schemas"};
         }
     }
 

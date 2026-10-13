@@ -121,15 +121,16 @@ static std::string executeAndRead(FireboltConnection * conn, const std::string &
     // session-state behaviour symmetric with the SQL-execution path so a server
     // reset after a GetObjects call is not silently dropped.
     applySessionUpdatesIfSuccess(conn->session_params, resp);
+    if (!resp.transfer.ok())
+        return resp.transfer.message;
     if (!resp.isSuccess())
         return resp.error_message.empty() ? "HTTP error " + std::to_string(resp.http_code) : resp.error_message;
     if (resp.body.empty())
         return {};
 
     ArrowArrayStream stream{};
-    std::string err = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream);
-    if (!err.empty())
-        return err;
+    if (Status status = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream); !status.ok())
+        return status.message;
 
     // Get schema.
     ArrowSchema schema{};
@@ -452,9 +453,11 @@ AdbcStatusCode ConnectionGetTableSchema(
     auto resp = conn->http->executeQuery(
         buildTableSchemaSql(catalog ? catalog : "", db_schema ? db_schema : "", table_name), conn->session_params);
     applySessionUpdatesIfSuccess(conn->session_params, resp);
+    if (!resp.transfer.ok())
+        return SetError(error, resp.transfer.code, "GetTableSchema: " + resp.transfer.message);
     if (!resp.isSuccess())
     {
-        const bool relation_not_found = resp.curl_code == CURLE_OK && resp.http_code >= 400 && resp.http_code < 500
+        const bool relation_not_found = resp.http_code >= 400 && resp.http_code < 500
             && resp.error_message.find("relation") != std::string::npos && resp.error_message.find("does not exist") != std::string::npos;
         const AdbcStatusCode status = relation_not_found
             ? ADBC_STATUS_NOT_FOUND
@@ -463,9 +466,8 @@ AdbcStatusCode ConnectionGetTableSchema(
     }
 
     ArrowArrayStream stream{};
-    std::string err = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream);
-    if (!err.empty())
-        return SetError(error, ADBC_STATUS_INTERNAL, "GetTableSchema: " + err);
+    if (Status status = ExportIpcBytesAsArrowStream(std::move(resp.body), &stream); !status.ok())
+        return SetError(error, status.code, "GetTableSchema: " + status.message);
 
     int rc = stream.get_schema(&stream, out);
     if (stream.release)

@@ -17,7 +17,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include <curl/curl.h>
@@ -47,10 +46,10 @@ public:
 
     // Wait until the body starts or the transfer ends; the status and the response
     // headers are known after it succeeds.
-    CURLcode waitForResponse(std::string & error_message);
+    Status waitForResponse();
 
     // Read the rest of the body onto the end of `body`.
-    CURLcode readToEnd(std::vector<uint8_t> & body, std::string & error_message);
+    Status readToEnd(std::vector<uint8_t> & body);
 
     // Stop the transfer, if unfinished, and give the handles back to the
     // connection with their options kept, so the request can be sent again.
@@ -64,7 +63,7 @@ private:
     static size_t onBodyBytes(char * ptr, size_t size, size_t nmemb, void * userdata);
 
     // Wait for body bytes beyond those received, or for the end of the transfer.
-    CURLcode receive(std::string & error_message);
+    Status receive();
 
     std::shared_ptr<CurlHandles> handles;
     curl_slist * request_headers;

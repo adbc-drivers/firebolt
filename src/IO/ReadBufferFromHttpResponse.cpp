@@ -29,9 +29,15 @@ namespace
     // The longest single wait in curl_multi_poll, so a deadline is checked often.
     constexpr int MAX_POLL_MS = 1000;
 
-    std::string curlError(CURLcode code)
+    Status curlError(CURLcode code)
     {
-        return std::string("curl error: ") + curl_easy_strerror(code);
+        const AdbcStatusCode status_code = code == CURLE_OPERATION_TIMEDOUT ? ADBC_STATUS_TIMEOUT : ADBC_STATUS_IO;
+        return {status_code, std::string("curl error: ") + curl_easy_strerror(code)};
+    }
+
+    Status curlError(CURLMcode code)
+    {
+        return {ADBC_STATUS_IO, std::string("curl error: ") + curl_multi_strerror(code)};
     }
 
 } // namespace
@@ -79,7 +85,20 @@ size_t ReadBufferFromHttpResponse::onBodyBytes(char * ptr, size_t size, size_t n
     return total;
 }
 
-CURLcode ReadBufferFromHttpResponse::receive(std::string & error_message)
+// receive() loops until new body bytes arrive or the transfer ends.  Curl has no
+// background thread: all network work happens inside these calls, on the caller's
+// thread.
+//   - curl_multi_perform() does whatever network work is ready without blocking:
+//     connecting, sending the request, reading the socket.
+//   - onBodyBytes() is called by curl from inside curl_multi_perform() with each
+//     piece of the body, and appends it to `received`.
+//   - curl_multi_info_read() reports when the transfer has finished;
+//     releaseHandles() then gives the curl handles back to the connection.
+//   - curl_multi_poll() sleeps until the socket is ready again, then the loop
+//     calls curl_multi_perform() once more.
+// Since the socket is only read while a reader waits here, a slow consumer slows
+// the server down instead of filling memory.
+Status ReadBufferFromHttpResponse::receive()
 {
     if (consumed == received.size())
     {
@@ -92,10 +111,7 @@ CURLcode ReadBufferFromHttpResponse::receive(std::string & error_message)
     {
         int running = 0;
         if (CURLMcode code = curl_multi_perform(handles->multi, &running); code != CURLM_OK)
-        {
-            error_message = std::string("curl error: ") + curl_multi_strerror(code);
-            return CURLE_RECV_ERROR;
-        }
+            return curlError(code);
         int queued = 0;
         while (CURLMsg * message = curl_multi_info_read(handles->multi, &queued))
         {
@@ -117,41 +133,33 @@ CURLcode ReadBufferFromHttpResponse::receive(std::string & error_message)
         {
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
             if (remaining.count() <= 0)
-            {
-                error_message = "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)";
-                return CURLE_OPERATION_TIMEDOUT;
-            }
+                return {
+                    ADBC_STATUS_TIMEOUT, "No data from the server for " + std::to_string(idle_timeout_sec) + " s (firebolt.timeout_sec)"};
             wait_ms = static_cast<int>(std::min<long long>(remaining.count(), MAX_POLL_MS));
         }
         if (CURLMcode code = curl_multi_poll(handles->multi, nullptr, 0, wait_ms, nullptr); code != CURLM_OK)
-        {
-            error_message = std::string("curl error: ") + curl_multi_strerror(code);
-            return CURLE_RECV_ERROR;
-        }
+            return curlError(code);
     }
     if (finished && transfer_result != CURLE_OK)
-    {
-        error_message = curlError(transfer_result);
-        return transfer_result;
-    }
-    return CURLE_OK;
+        return curlError(transfer_result);
+    return {};
 }
 
-CURLcode ReadBufferFromHttpResponse::waitForResponse(std::string & error_message)
+Status ReadBufferFromHttpResponse::waitForResponse()
 {
-    return receive(error_message);
+    return receive();
 }
 
-CURLcode ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body, std::string & error_message)
+Status ReadBufferFromHttpResponse::readToEnd(std::vector<uint8_t> & body)
 {
     for (;;)
     {
         body.insert(body.end(), received.begin() + static_cast<std::ptrdiff_t>(consumed), received.end());
         consumed = received.size();
-        if (CURLcode code = receive(error_message); code != CURLE_OK)
-            return code;
+        if (Status status = receive(); !status.ok())
+            return status;
         if (finished && consumed == received.size())
-            return CURLE_OK;
+            return {};
     }
 }
 
@@ -160,9 +168,8 @@ Status ReadBufferFromHttpResponse::read(uint8_t * buffer, size_t size, size_t & 
     bytes_read = 0;
     if (consumed == received.size())
     {
-        std::string error_message;
-        if (receive(error_message) != CURLE_OK)
-            return {ADBC_STATUS_IO, error_message};
+        if (Status status = receive(); !status.ok())
+            return status;
     }
     bytes_read = (std::min)(size, received.size() - consumed);
     memcpy(buffer, received.data() + consumed, bytes_read);
