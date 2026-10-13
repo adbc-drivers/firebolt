@@ -196,7 +196,7 @@ namespace
         // Fill `buffer` with `size` bytes, fewer only at the end of the body.
         Status readFully(uint8_t * buffer, size_t size, size_t & bytes_read)
         {
-            bytes_read = std::min(size, lookahead.size());
+            bytes_read = (std::min)(size, lookahead.size());
             memcpy(buffer, lookahead.data(), bytes_read);
             lookahead.erase(lookahead.begin(), lookahead.begin() + static_cast<std::ptrdiff_t>(bytes_read));
             while (bytes_read < size)
