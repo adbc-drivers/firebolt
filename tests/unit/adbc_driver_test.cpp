@@ -28,10 +28,12 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -879,8 +881,8 @@ TEST(StatementTest, NullQueryFails)
 TEST(ArrowIpcStreamTest, EmptyBodyProducesEmptyStream)
 {
     ArrowArrayStream stream{};
-    std::string err = firebolt::adbc::ExportIpcBytesAsArrowStream({}, &stream);
-    ASSERT_TRUE(err.empty()) << err;
+    firebolt::adbc::Status status = firebolt::adbc::ExportIpcBytesAsArrowStream({}, &stream);
+    ASSERT_TRUE(status.ok()) << status.message;
     ASSERT_NE(stream.get_schema, nullptr);
 
     ArrowSchema schema{};
@@ -938,8 +940,8 @@ TEST(ArrowIpcStreamTest, RoundTripIpcBytes)
 
     // Round-trip through ExportIpcBytesAsArrowStream
     ArrowArrayStream out_stream{};
-    std::string out_err = firebolt::adbc::ExportIpcBytesAsArrowStream(ipc_bytes, &out_stream);
-    ASSERT_TRUE(out_err.empty()) << out_err;
+    firebolt::adbc::Status status = firebolt::adbc::ExportIpcBytesAsArrowStream(ipc_bytes, &out_stream);
+    ASSERT_TRUE(status.ok()) << status.message;
 
     ArrowSchema out_schema{};
     ASSERT_EQ(out_stream.get_schema(&out_stream, &out_schema), 0);
@@ -961,6 +963,188 @@ TEST(ArrowIpcStreamTest, RoundTripIpcBytes)
 
     if (out_stream.release)
         out_stream.release(&out_stream);
+}
+
+// ============================================================
+// Tests: ArrowIpcStream — a response body read in pieces
+// ============================================================
+
+namespace
+{
+
+// Arrow IPC stream bytes for one int32 column "x", one record batch per entry.
+std::vector<uint8_t> EncodeInt32Batches(const std::vector<std::vector<int32_t>> & batches)
+{
+    nanoarrow::UniqueSchema schema = MakeTopLevelSchema(1);
+    EXPECT_EQ(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_INT32), 0);
+    EXPECT_EQ(ArrowSchemaSetName(schema->children[0], "x"), 0);
+
+    nanoarrow::UniqueArrayStream basic_stream;
+    nanoarrow::UniqueSchema stream_schema;
+    EXPECT_EQ(ArrowSchemaDeepCopy(schema.get(), stream_schema.get()), 0);
+    EXPECT_EQ(ArrowBasicArrayStreamInit(basic_stream.get(), stream_schema.get(), static_cast<int64_t>(batches.size())), 0);
+    for (size_t i = 0; i < batches.size(); ++i)
+    {
+        nanoarrow::UniqueArray batch;
+        EXPECT_EQ(ArrowArrayInitFromSchema(batch.get(), schema.get(), nullptr), 0);
+        EXPECT_EQ(ArrowArrayStartAppending(batch.get()), 0);
+        for (int32_t value : batches[i])
+        {
+            EXPECT_EQ(ArrowArrayAppendInt(batch->children[0], value), 0);
+            EXPECT_EQ(ArrowArrayFinishElement(batch.get()), 0);
+        }
+        EXPECT_EQ(ArrowArrayFinishBuilding(batch.get(), NANOARROW_VALIDATION_LEVEL_DEFAULT, nullptr), 0);
+        ArrowBasicArrayStreamSetArray(basic_stream.get(), static_cast<int64_t>(i), batch.get());
+    }
+
+    nanoarrow::UniqueBuffer buffer;
+    ArrowIpcOutputStream output{};
+    EXPECT_EQ(ArrowIpcOutputStreamInitBuffer(&output, buffer.get()), 0);
+    ArrowIpcWriter writer{};
+    EXPECT_EQ(ArrowIpcWriterInit(&writer, &output), 0);
+    ArrowError na_error{};
+    EXPECT_EQ(ArrowIpcWriterWriteArrayStream(&writer, basic_stream.get(), &na_error), 0) << na_error.message;
+    ArrowIpcWriterReset(&writer);
+    return {buffer->data, buffer->data + buffer->size_bytes};
+}
+
+constexpr size_t END_OF_STREAM_SIZE = 8; // 0xFFFFFFFF continuation + 0 length
+
+// A response body that arrives a few bytes at a time and, optionally, fails
+// once its bytes run out — the way a transfer that times out does.
+class ReadBufferFromChunks : public firebolt::adbc::IReadBuffer
+{
+public:
+    ReadBufferFromChunks(std::vector<uint8_t> bytes, size_t chunk_size, firebolt::adbc::Status failure_at_end = {})
+        : bytes(std::move(bytes)), chunk_size(chunk_size), failure_at_end(std::move(failure_at_end))
+    {
+    }
+
+    firebolt::adbc::Status read(uint8_t * buffer, size_t size, size_t & bytes_read) override
+    {
+        bytes_read = std::min({size, chunk_size, bytes.size() - offset});
+        if (bytes_read == 0)
+            return failure_at_end;
+        memcpy(buffer, bytes.data() + offset, bytes_read);
+        offset += bytes_read;
+        return {};
+    }
+
+private:
+    std::vector<uint8_t> bytes;
+    size_t offset = 0;
+    size_t chunk_size;
+    firebolt::adbc::Status failure_at_end;
+};
+
+std::vector<int32_t> ReadInt32Batch(ArrowArrayStream & stream)
+{
+    nanoarrow::UniqueArray batch;
+    if (stream.get_next(&stream, batch.get()) != 0)
+    {
+        const char * message = stream.get_last_error(&stream);
+        ADD_FAILURE() << "get_next failed: " << (message ? message : "no message");
+        return {};
+    }
+    std::vector<int32_t> values;
+    if (!batch->release)
+        return values;
+    const auto * data = static_cast<const int32_t *>(batch->children[0]->buffers[1]);
+    values.assign(data, data + batch->length);
+    return values;
+}
+
+} // namespace
+
+TEST(ArrowIpcStreamTest, BodyArrivingInPiecesRoundTrips)
+{
+    std::vector<uint8_t> bytes = EncodeInt32Batches({{1, 2, 3}, {4, 5}});
+
+    nanoarrow::UniqueArrayStream stream;
+    firebolt::adbc::Status status
+        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 3), stream.get());
+    ASSERT_TRUE(status.ok()) << status.message;
+
+    nanoarrow::UniqueSchema schema;
+    ASSERT_EQ(stream->get_schema(stream.get(), schema.get()), 0);
+    ASSERT_EQ(schema->n_children, 1);
+    EXPECT_STREQ(schema->children[0]->name, "x");
+
+    EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{1, 2, 3}));
+    EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{4, 5}));
+    nanoarrow::UniqueArray eos;
+    ASSERT_EQ(stream->get_next(stream.get(), eos.get()), 0);
+    EXPECT_EQ(eos->release, nullptr);
+}
+
+TEST(ArrowIpcStreamTest, ErrorTextAfterTheLastMessageIsReported)
+{
+    // What Firebolt sends when a query fails after its 200: the messages flushed
+    // so far, no end-of-stream marker, then the error text.
+    std::vector<uint8_t> bytes = EncodeInt32Batches({{1, 2}, {3}});
+    bytes.resize(bytes.size() - END_OF_STREAM_SIZE);
+    const std::string trailer = R"({"errors":[{"description":"Division by zero"}]})"
+                                "\n";
+    bytes.insert(bytes.end(), trailer.begin(), trailer.end());
+
+    nanoarrow::UniqueArrayStream stream;
+    firebolt::adbc::Status status
+        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 5), stream.get());
+    ASSERT_TRUE(status.ok()) << status.message;
+
+    EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{1, 2}));
+    EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{3}));
+    nanoarrow::UniqueArray batch;
+    EXPECT_NE(stream->get_next(stream.get(), batch.get()), 0);
+    const char * message = stream->get_last_error(stream.get());
+    ASSERT_NE(message, nullptr);
+    EXPECT_NE(std::string(message).find("Division by zero"), std::string::npos) << message;
+}
+
+TEST(ArrowIpcStreamTest, ErrorTextInsteadOfTheSchemaFailsTheExport)
+{
+    const std::string text = "Query failed";
+    std::vector<uint8_t> bytes(text.begin(), text.end());
+
+    nanoarrow::UniqueArrayStream stream;
+    firebolt::adbc::Status status
+        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(bytes, 64), stream.get());
+    EXPECT_EQ(status.code, ADBC_STATUS_IO);
+    EXPECT_NE(status.message.find("Query failed"), std::string::npos) << status.message;
+}
+
+TEST(ArrowIpcStreamTest, BodyThatFailsMidwayIsReported)
+{
+    std::vector<uint8_t> bytes = EncodeInt32Batches({{1}, {2}});
+    bytes.resize(bytes.size() - END_OF_STREAM_SIZE - 4); // cut inside the last batch
+
+    nanoarrow::UniqueArrayStream stream;
+    firebolt::adbc::Status status = firebolt::adbc::ExportIpcReadBufferAsArrowStream(
+        std::make_unique<ReadBufferFromChunks>(bytes, 7, firebolt::adbc::Status{ADBC_STATUS_TIMEOUT, "No data from the server for 1 s"}),
+        stream.get());
+    ASSERT_TRUE(status.ok()) << status.message;
+
+    EXPECT_EQ(ReadInt32Batch(*stream.get()), (std::vector<int32_t>{1}));
+    nanoarrow::UniqueArray batch;
+    EXPECT_NE(stream->get_next(stream.get(), batch.get()), 0);
+    const char * message = stream->get_last_error(stream.get());
+    ASSERT_NE(message, nullptr);
+    EXPECT_NE(std::string(message).find("No data from the server"), std::string::npos) << message;
+}
+
+TEST(ArrowIpcStreamTest, EmptyBodyInPiecesProducesEmptyStream)
+{
+    nanoarrow::UniqueArrayStream stream;
+    firebolt::adbc::Status status
+        = firebolt::adbc::ExportIpcReadBufferAsArrowStream(std::make_unique<ReadBufferFromChunks>(std::vector<uint8_t>{}, 4), stream.get());
+    ASSERT_TRUE(status.ok()) << status.message;
+
+    nanoarrow::UniqueSchema schema;
+    ASSERT_EQ(stream->get_schema(stream.get(), schema.get()), 0);
+    EXPECT_EQ(schema->n_children, 0);
+    nanoarrow::UniqueArray eos;
+    ASSERT_EQ(stream->get_next(stream.get(), eos.get()), 0);
+    EXPECT_EQ(eos->release, nullptr);
 }
 
 // ============================================================

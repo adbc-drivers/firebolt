@@ -42,7 +42,7 @@ struct FireboltConnection
     std::unordered_map<std::string, std::string> session_params;
     // ADBC requires ConnectionGetOption to be thread-safe with itself. Other
     // connection operations are not thread-safe, so this mutex only serializes
-    // concurrent option reads that share the connection's curl handle.
+    // concurrent option reads that share the connection's session state.
     std::mutex get_option_mutex;
     // Per-connection bearer token.  Initialised from FireboltDatabase::token at
     // ConnectionInit time, then mutated only by ConnectionSetOption on this

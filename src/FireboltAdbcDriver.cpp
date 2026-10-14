@@ -68,8 +68,8 @@ static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::st
 
 static AdbcStatusCode HttpRespToStatus(const HttpResponse & resp, AdbcError * error)
 {
-    if (resp.curl_code != CURLE_OK)
-        return SetError(error, ADBC_STATUS_IO, resp.error_message);
+    if (!resp.transfer.ok())
+        return SetError(error, resp.transfer.code, resp.transfer.message);
     if (resp.http_code == 401 || resp.http_code == 403)
         return SetError(error, ADBC_STATUS_UNAUTHORIZED, "HTTP " + std::to_string(resp.http_code) + ": " + resp.error_message);
     if (resp.http_code >= 400 && resp.http_code < 500)
@@ -87,7 +87,7 @@ static AdbcStatusCode IngestHttpRespToStatus(const HttpResponse & resp, IngestMo
     const bool column_missing_from_target = resp.error_message.find("does not exist in the target INSERT table") != std::string::npos;
     const bool create_target_exists = mode == IngestMode::Create && resp.error_message.find("already exists") != std::string::npos;
     const bool already_exists = (appending && column_missing_from_target) || create_target_exists;
-    if (resp.curl_code == CURLE_OK && resp.http_code >= 400 && resp.http_code < 500 && already_exists)
+    if (resp.transfer.ok() && resp.http_code >= 400 && resp.http_code < 500 && already_exists)
     {
         return SetError(error, ADBC_STATUS_ALREADY_EXISTS, "HTTP " + std::to_string(resp.http_code) + ": " + resp.error_message);
     }
@@ -1042,9 +1042,8 @@ static AdbcStatusCode BuildParameterSets(const BoundData & bound, bool bind_by_n
 static AdbcStatusCode ReadSingleStringPayload(std::vector<uint8_t> body, const std::string & context, std::string & out, AdbcError * error)
 {
     nanoarrow::UniqueArrayStream stream;
-    std::string err = ExportIpcBytesAsArrowStream(std::move(body), stream.get());
-    if (!err.empty())
-        return SetError(error, ADBC_STATUS_INTERNAL, "Cannot read the " + context + " response: " + err);
+    if (Status status = ExportIpcBytesAsArrowStream(std::move(body), stream.get()); !status.ok())
+        return SetError(error, status.code, "Cannot read the " + context + " response: " + status.message);
 
     nanoarrow::UniqueSchema schema;
     if (stream->get_schema(stream.get(), schema.get()) != 0 || schema->n_children != 1)
@@ -1252,6 +1251,10 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
 
     try
     {
+        // A new execution replaces this statement's previous result (ADBC), so a
+        // stream of it still open is abandoned rather than blocking the connection.
+        conn->http->abandonResult(fs->result_response_id);
+
         // Bound data is either a bulk-ingest payload or a set of query parameters,
         // told apart by whether an ingest target table was set.
         const bool has_data = fs->bound && fs->bound->data_bound;
@@ -1371,6 +1374,18 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
                     parameter_response_bodies.push_back(std::move(resp.body));
             }
         }
+        else if (out)
+        {
+            // The result the caller reads is streamed: this returns once the response
+            // starts, with its status and session updates known.
+            StartedResponse started = conn->http->startQuery(sql, conn->session_params);
+            ApplySessionUpdates(conn, started.response);
+            if (!started.response.isSuccess())
+                return HttpRespToStatus(started.response, error);
+            fs->result_response_id = started.body->id();
+            Status status = ExportIpcReadBufferAsArrowStream(std::move(started.body), out);
+            return status.ok() ? ADBC_STATUS_OK : SetError(error, status.code, status.message);
+        }
         else
         {
             resp = conn->http->executeQuery(sql, conn->session_params);
@@ -1383,11 +1398,10 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
 
         if (out)
         {
-            std::string err = parameter_response_bodies.empty()
-                ? ExportIpcBytesAsArrowStream(std::move(resp.body), out)
-                : ExportIpcResponsesAsArrowStream(std::move(parameter_response_bodies), out);
-            if (!err.empty())
-                return SetError(error, ADBC_STATUS_INTERNAL, err);
+            Status status = parameter_response_bodies.empty() ? ExportIpcBytesAsArrowStream(std::move(resp.body), out)
+                                                              : ExportIpcResponsesAsArrowStream(std::move(parameter_response_bodies), out);
+            if (!status.ok())
+                return SetError(error, status.code, status.message);
         }
 
         return ADBC_STATUS_OK;

@@ -92,6 +92,10 @@ struct FireboltStatement
     // it only ever *adds* a naming — see buildQueryParametersJson.
     bool bind_by_name = false;
 
+    // The response behind this statement's last streamed result; the next
+    // execution abandons it if it is still being read.
+    uint64_t result_response_id = 0;
+
     BoundData & initAndGetBoundData()
     {
         if (!bound)

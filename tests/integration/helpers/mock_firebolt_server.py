@@ -28,6 +28,24 @@ Usage from a test:
         # ... drive ADBC ...
         last = mock_server.last_request
         assert "database=evil" not in last.path
+
+A response can also be streamed with `chunks=[...]` instead of `body=`, so a
+test can observe what the driver does with a response that has started but not
+finished.  Each item of the list is one `Chunk`:
+
+    bytes            sent at once, as one chunk of `Transfer-Encoding: chunked`
+    threading.Event  the response waits until the test sets it
+    Pause(seconds)   the response waits that long — only for tests about time,
+                     such as timeouts; a test that just needs the response to
+                     stop until it says so uses an Event
+    Disconnect()     the connection closes there, without the final chunk: the
+                     response breaks off, as when a server dies mid-response.
+                     Its optional `closed` event is set once that has happened.
+
+    gate = threading.Event()
+    mock_server.queue(chunks=[schema, batch1, gate, batch2, end_of_stream])
+    # ... read batch1 while the server is held at the gate ...
+    gate.set()
 """
 
 import dataclasses
@@ -39,8 +57,10 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import time
 from collections import deque
 from collections.abc import Iterable
+from typing import TypeAlias
 
 
 @dataclasses.dataclass
@@ -51,11 +71,31 @@ class CapturedRequest:
     body: bytes
 
 
+@dataclasses.dataclass(frozen=True)
+class Pause:
+    """A chunk item: the streamed response waits `seconds` before going on."""
+
+    seconds: float
+
+
+@dataclasses.dataclass(frozen=True)
+class Disconnect:
+    """A chunk item: the connection closes, without the final chunk."""
+
+    closed: threading.Event | None = None
+
+
+# One item of a streamed response; see the module docstring.
+Chunk: TypeAlias = bytes | threading.Event | Pause | Disconnect
+
+
 @dataclasses.dataclass
 class _QueuedResponse:
     status: int
     body: bytes
     headers: list  # list of (name, value) tuples — duplicates allowed
+    # Streamed instead of `body` when set.
+    chunks: list[Chunk] | None = None
 
 
 class MockFireboltServer:
@@ -104,6 +144,9 @@ class MockFireboltServer:
                         if outer._queued
                         else _QueuedResponse(200, b"", [])
                     )
+                if response.chunks is not None:
+                    self._send_chunked(response)
+                    return
                 self.send_response(response.status)
                 self.send_header("Content-Length", str(len(response.body)))
                 for name, value in response.headers:
@@ -111,6 +154,50 @@ class MockFireboltServer:
                 self.end_headers()
                 if response.body:
                     self.wfile.write(response.body)
+
+            def _send_chunked(self, response: _QueuedResponse):
+                """Stream `response.chunks` the way Firebolt streams a result.
+
+                With chunked transfer coding (RFC 9112 §7.1) the body has no
+                Content-Length: it is a series of chunks, each its size in hex
+                and CRLF, then the data and CRLF, ended by a zero-size chunk.
+                The client sees each chunk as soon as it is flushed, so pausing
+                between them leaves a response started but not finished."""
+                # Chunked transfer coding needs an HTTP/1.1 status line.
+                # One response per connection keeps the mock simple.
+                self.protocol_version = "HTTP/1.1"
+                self.close_connection = True
+                self.send_response(response.status)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("Connection", "close")
+                for name, value in response.headers:
+                    self.send_header(name, value)
+                self.end_headers()
+                try:
+                    for item in response.chunks:
+                        if isinstance(item, threading.Event):
+                            # A bound, so a test that fails before setting its
+                            # gate does not leave this thread waiting forever.
+                            item.wait(timeout=60)
+                        elif isinstance(item, Pause):
+                            time.sleep(item.seconds)
+                        elif isinstance(item, Disconnect):
+                            self.wfile.flush()
+                            self.connection.shutdown(socket.SHUT_WR)
+                            if item.closed:
+                                item.closed.set()
+                            return
+
+                        elif item:  # an empty chunk would end the body early
+                            # One chunk: "<size in hex>\r\n<data>\r\n".
+                            self.wfile.write(b"%x\r\n%s\r\n" % (len(item), item))
+                            self.wfile.flush()
+                    # The zero-size last chunk, then the empty line that ends
+                    # the (absent) trailer section: the body is complete.
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # the client stopped reading — what some tests do
 
             def do_GET(self):
                 self._serve()
@@ -153,11 +240,26 @@ class MockFireboltServer:
     # ----- test-side controls -----------------------------------------------
 
     def queue(
-        self, *, status: int = 200, body: bytes = b"", headers: Iterable[tuple] = ()
+        self,
+        *,
+        status: int = 200,
+        body: bytes = b"",
+        headers: Iterable[tuple] = (),
+        chunks: Iterable[Chunk] | None = None,
     ):
-        """Queue one response to be served on the next request."""
+        """Queue one response to be served on the next request.
+
+        With `chunks`, the response is streamed instead of sent as `body` (see
+        the module docstring)."""
         with self._lock:
-            self._queued.append(_QueuedResponse(status, body, list(headers)))
+            self._queued.append(
+                _QueuedResponse(
+                    status,
+                    body,
+                    list(headers),
+                    list(chunks) if chunks is not None else None,
+                )
+            )
 
     def reset(self):
         """Drop all queued responses and captured requests."""

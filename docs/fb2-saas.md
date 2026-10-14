@@ -74,7 +74,7 @@ is opened.
 | `firebolt.database` | no | Database name. Checked when you connect, so a misspelt name fails there. |
 | `firebolt.token` | no¹ | A token you obtained yourself, used instead of the service account. Never refreshed. |
 | `firebolt.cache_connection` | no | `true` (default) or `false`. See [Caching](#caching). |
-| `firebolt.timeout_sec` | no | Request timeout in whole seconds, also applied while connecting. `0` (default) disables it. |
+| `firebolt.timeout_sec` | no | How long to wait for the server, in whole seconds ([details](../OPTIONS.md)); while connecting, it bounds each control-plane request. `0` (default) disables it. |
 | `firebolt.ssl_certificate_path` | no | PEM CA bundle, if the system one does not verify Firebolt's certificates. |
 
 ¹ Either the service account (both values) or `firebolt.token`, not both. Each

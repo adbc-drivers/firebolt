@@ -25,7 +25,6 @@ namespace
 firebolt::adbc::HttpResponse makeOk()
 {
     firebolt::adbc::HttpResponse r;
-    r.curl_code = CURLE_OK;
     r.http_code = 200;
     return r;
 }
@@ -33,7 +32,6 @@ firebolt::adbc::HttpResponse makeOk()
 firebolt::adbc::HttpResponse makeError(long http_code)
 {
     firebolt::adbc::HttpResponse r;
-    r.curl_code = CURLE_OK;
     r.http_code = http_code;
     return r;
 }
@@ -103,7 +101,7 @@ TEST(SessionStateTest, NoSessionMutationOnCurlError)
 {
     std::unordered_map<std::string, std::string> session{{"legitimate", "yes"}};
     firebolt::adbc::HttpResponse resp;
-    resp.curl_code = CURLE_COULDNT_CONNECT;
+    resp.transfer = {ADBC_STATUS_IO, "curl error: Could not connect to server"};
     resp.http_code = 0;
     resp.update_params["database"] = "evil";
     EXPECT_FALSE(firebolt::adbc::applySessionUpdatesIfSuccess(session, resp));

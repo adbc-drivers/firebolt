@@ -25,8 +25,8 @@ namespace firebolt::adbc
 
 // Parse all `Firebolt-Update-Parameters: k=v[, k=v]*` headers from the final
 // response on the given curl handle into a flat map.  The last occurrence of
-// a key wins.  `handle` must be a curl easy handle whose last
-// curl_easy_perform() has completed; libcurl owns the parsed-header strings
+// a key wins.  `handle` must be a curl easy handle whose response headers have
+// all arrived (its body may still be arriving); libcurl owns the parsed-header strings
 // until the next curl call on this handle, so callers should consume the
 // result before reusing the handle.
 //

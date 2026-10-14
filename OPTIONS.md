@@ -45,7 +45,7 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 | `firebolt.token` | no | none | Bearer token sent as `Authorization: Bearer <token>`. Omit it entirely for an engine with authentication disabled — no header is sent. See [docs/authentication.md](docs/authentication.md); this key is a stopgap and is going away. |
 | `firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
 | `firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
-| `firebolt.timeout_sec` | no | `0` | Whole seconds; the total request timeout (libcurl `CURLOPT_TIMEOUT`). `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
+| `firebolt.timeout_sec` | no | `0` | Whole seconds. For a query, the longest the driver waits for the server to send more of its response — before the result starts, or between parts of it. Time your application spends between reading batches does not count. For an ingest upload, the total request time. `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
 
 ### `firebolt://` URIs
 
@@ -117,6 +117,35 @@ trusted (`src/HttpClient.cpp`, `applySessionUpdatesIfSuccess`).
 | `Firebolt-Update-Parameters` | Merge the listed `k=v` pairs into the session parameters. |
 | `Firebolt-Remove-Parameters` | Drop the listed keys. |
 | `Firebolt-Reset-Session` | Clear all session parameters. |
+
+### One result stream at a time
+
+A query's result is streamed: `ExecuteQuery` returns as soon as the server starts
+answering, and each record batch is downloaded when you ask for it. Until the stream
+is **read to the end** (past its last batch), **fails** (a timeout, a broken
+connection, a query error) or is **released**, it still uses the connection. Any
+other call on that connection that needs the server (another statement's execute,
+`Commit`, `Rollback`, a metadata call, …) fails with `ADBC_STATUS_INVALID_STATE`
+without sending anything.
+
+Executing the **same statement** again is the exception: as ADBC specifies, that
+replaces its previous result. The old stream is abandoned, and reading it fails.
+
+A connection and its open result stream must not be used from two threads at the
+same time; serialize access to them as to any ADBC connection.
+
+To run something else first, finish or close the result. In Python's dbapi:
+
+- `fetchall()`, `fetch_arrow_table()` and `fetch_df()` read to the end, which frees
+  the connection.
+- `fetchone()`/`fetchmany()` usually stop before the end, so the result is still
+  open: `cur.fetchone()` followed by `conn.commit()` fails. Close the cursor (or
+  run the next query on the same cursor) first.
+- A new `execute()` on the **same cursor** drops the previous result, which CPython
+  releases at once — unless you still hold the reader from `fetch_record_batch()`;
+  close that reader yourself.
+
+To read two results at once, use two connections.
 
 ## Statement options
 
@@ -342,7 +371,7 @@ today's names are stable and which are already superseded.
 |-------|-----------|------|
 | `uri` | `host` | A `firebolt://` URI already carries the host, database and `ssl_mode`; the `http(s)://` form encodes the transport in the scheme instead. |
 | `firebolt.database` | `database` | Rename only. |
-| `firebolt.timeout_sec` | `query_timeout` | Rename only. |
+| `firebolt.timeout_sec` | `query_timeout` | Rename; for a query it bounds each wait for the server, not the whole request. |
 | `firebolt.token` | *(none)* | The spec has no connection field for a raw JWT: it comes from the `FIREBOLT_TOKEN` environment variable. This key will be removed. |
 | — | `username` / `password` | OAuth `client_id` / `client_secret` for the `client_credentials` grant. Not implemented yet. |
 | — | `engine` | Engine selector, sent per request. Not implemented yet. |

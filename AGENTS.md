@@ -39,6 +39,7 @@ material — generate test certificates at run time.
 ├── src/                              # the driver
 │   ├── FireboltAdbcDriver.cpp        # ADBC entry points: database, connection, statement
 │   ├── HttpClient.*                  # libcurl wrapper for Firebolt's HTTP query protocol
+│   ├── IO/                           # IReadBuffer and its ReadBufferFrom* implementations
 │   └── fb2/                          # FB2 SaaS (Legacy) mode, isolated behind hooks
 ├── tests/
 │   ├── unit/                         # GoogleTest, no server needed
@@ -88,6 +89,7 @@ Beyond what pre-commit and clang-tidy enforce:
 - Use library calls, not inline lambdas; wrap a long call in a named helper in the anonymous namespace.
 - Look a value up once: `if (auto * x = find(k); !x || x->empty())`.
 - One `firebolt::adbc::Status` for a status code and message.
+- `NOMINMAX` is defined on Windows, so write plain `std::min`/`std::max`, not `(std::min)`.
 - `NOLINT` only with a reason; don't reformat lines you are not changing; no build switches for features.
 
 ## Key Design Decisions
@@ -188,10 +190,27 @@ under "Other environments".
 
 - **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with the SQL
   as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
+- **Results stream**: ExecuteQuery returns once the response starts (status and
+  headers known); `ReadBufferFromHttpResponse` pumps its own `curl_multi` handle only while a
+  reader waits for bytes, so nothing is buffered beyond a socket read. A query that
+  fails after its 200 ends the body with error text in place of the next IPC message;
+  it is told apart by the missing `0xFFFFFFFF` continuation marker. `timeout_sec`
+  bounds each wait for the server, not the request.
+- **One request at a time**: a connection has one easy+multi pair (`CurlHandles`),
+  which keeps its HTTP connection alive. An open result stream holds it until its
+  transfer ends (reading past the last batch drains the body) or it is released;
+  meanwhile every request fails with `ADBC_STATUS_INVALID_STATE` in `HttpClient`,
+  unsent. A failed stream lets go at once; re-executing the same statement abandons
+  its own open result (`abandonResult`). Like the connection, a stream is not
+  thread-safe. Documented in OPTIONS.md.
 - **INSERT with bind data**: `multipart/form-data` — a `sql` part referencing
   `upload://data.arrow` plus a `data.arrow` part with Arrow IPC bytes.
 - **Session state**: `Firebolt-Update-Parameters` / `Firebolt-Remove-Parameters` /
-  `Firebolt-Reset-Session` response headers, applied only on a successful response.
+  `Firebolt-Reset-Session` response headers, applied only on a 2xx response (a
+  non-2xx one may come from a proxy, so its hints are untrusted). They arrive
+  before the body and are applied then, even for a streamed result that later
+  ends with error text: the server has already applied them, e.g. advanced the
+  transaction sequence, so the next request needs them.
 
 ## Authentication (Firebolt Core)
 
