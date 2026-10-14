@@ -59,13 +59,13 @@ namespace firebolt::adbc
 constexpr const char * ALL_ARROW_CODECS = "zstd, lz4";
 
 // The codec list a firebolt.arrow_compression value offers, joined by ", " (empty
-// for none); nullopt for a value that is not "true", "false" or a list of distinct
+// for none); nullopt for a value that is not "any", "none" or a list of distinct
 // codecs from ALL_ARROW_CODECS.
 static std::optional<std::string> ParseArrowCodecs(const std::string & value)
 {
-    if (value == ADBC_OPTION_VALUE_ENABLED)
+    if (value == "any")
         return ALL_ARROW_CODECS;
-    if (value == ADBC_OPTION_VALUE_DISABLED)
+    if (value == "none")
         return "";
     if (value.empty() || value.back() == ',')
         return std::nullopt;
@@ -407,8 +407,8 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
                 fdb,
                 error,
                 ADBC_STATUS_INVALID_ARGUMENT,
-                std::string("Option 'firebolt.arrow_compression' must be \"true\", \"false\" or a comma-separated list of codecs from \"")
-                    + ALL_ARROW_CODECS + "\"; got '" + v + "'");
+                std::string("Option 'firebolt.arrow_compression' must be 'any', 'none' or a comma-separated list of codecs from '")
+                    + ALL_ARROW_CODECS + "'; got '" + v + "'");
         fdb->arrow_codecs = *codecs;
     }
     else if (k == "firebolt.timeout_sec")

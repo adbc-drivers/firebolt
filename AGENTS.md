@@ -192,7 +192,7 @@ under "Other environments".
   as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`
   and `Accept: application/vnd.apache.arrow.stream; codecs="zstd, lz4"` — the codecs
   nanoarrow is built with, narrowed or reordered by a codec list in
-  `firebolt.arrow_compression` and dropped when it is `false`.
+  `firebolt.arrow_compression` and dropped when it is `none`.
 - **Results stream**: ExecuteQuery returns once the response starts (status and
   headers known); `ReadBufferFromHttpResponse` pumps its own `curl_multi` handle only while a
   reader waits for bytes, so nothing is buffered beyond a socket read. A query that

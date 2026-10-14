@@ -78,8 +78,8 @@ def _accept_sent_with(mock_server, value: str) -> str:
 @pytest.mark.parametrize(
     "value, accept",
     [
-        ("true", ACCEPT),
-        ("false", "application/vnd.apache.arrow.stream"),
+        ("any", ACCEPT),
+        ("none", "application/vnd.apache.arrow.stream"),
         ("zstd", 'application/vnd.apache.arrow.stream; codecs="zstd"'),
         ("lz4", 'application/vnd.apache.arrow.stream; codecs="lz4"'),
         ("lz4,zstd", 'application/vnd.apache.arrow.stream; codecs="lz4, zstd"'),
@@ -91,7 +91,10 @@ def test_arrow_compression_value_sets_accept_codecs(mock_server, value, accept):
     assert _accept_sent_with(mock_server, value) == accept
 
 
-@pytest.mark.parametrize("value", ["gzip", "zstd,gzip", "zstd,,lz4", "zstd,zstd", "", "TRUE"])
+@pytest.mark.parametrize(
+    "value",
+    ["gzip", "zstd,gzip", "zstd,,lz4", "zstd,zstd", "", "true", "false", "all", "ANY"],
+)
 def test_arrow_compression_rejects_other_values(mock_server, value):
     with pytest.raises(adbc_driver_manager.Error, match="arrow_compression") as exc:
         adbc_driver_manager.AdbcDatabase(
