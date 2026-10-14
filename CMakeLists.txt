@@ -63,6 +63,8 @@ set(_boringssl_src "${ADBC_SUBMODULE_DIR}/boringssl")
 set(_boringssl_build "${CMAKE_CURRENT_BINARY_DIR}/submodule/boringssl")
 set(_nanoarrow_src "${ADBC_SUBMODULE_DIR}/nanoarrow")
 set(_gtest_src     "${ADBC_SUBMODULE_DIR}/googletest")
+set(_zstd_src      "${ADBC_SUBMODULE_DIR}/zstd")
+set(_lz4_src       "${ADBC_SUBMODULE_DIR}/lz4")
 # nlohmann/json is header-only: no build, just its single-header include directory.
 set(_json_include  "${ADBC_SUBMODULE_DIR}/json/single_include")
 # Keep explicit archive paths for curl's OpenSSL detection hints.
@@ -73,6 +75,8 @@ require_dir("${ADBC_SUBMODULE_DIR}" "ADBC submodule root")
 require_dir("${_curl_src}" "curl source submodule")
 require_dir("${_nanoarrow_src}" "nanoarrow source submodule")
 require_dir("${_json_include}" "nlohmann/json source submodule")
+require_dir("${_zstd_src}" "zstd source submodule")
+require_dir("${_lz4_src}" "lz4 source submodule")
 set(_use_boringssl OFF)
 if (WITH_SSL AND NOT WIN32)
     set(_use_boringssl ON)
@@ -265,6 +269,36 @@ endif ()
 
 require_static_target(${_nanoarrow_target})
 require_static_target(${_nanoarrow_ipc_target})
+
+# Compressed Arrow IPC: nanoarrow decodes ZSTD and LZ4_FRAME record batches.  Its
+# NANOARROW_IPC_WITH_ZSTD/LZ4 options look the libraries up on the system, so they
+# stay off; both codecs are built here, decompression only.  nanoarrow gets their
+# headers; the codecs are linked wherever nanoarrow IPC is (its install export
+# set cannot name them).
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "Static zstd only" FORCE)
+set(ZSTD_BUILD_STATIC ON CACHE BOOL "Static zstd only" FORCE)
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "No zstd programs" FORCE)
+set(ZSTD_BUILD_TESTS OFF CACHE BOOL "No zstd tests" FORCE)
+set(ZSTD_BUILD_COMPRESSION OFF CACHE BOOL "The driver only decompresses" FORCE)
+set(ZSTD_BUILD_DICTBUILDER OFF CACHE BOOL "The driver only decompresses" FORCE)
+set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "Arrow IPC uses current zstd frames" FORCE)
+set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "Multithreading is for compression" FORCE)
+add_subdirectory("${_zstd_src}/build/cmake" "${CMAKE_CURRENT_BINARY_DIR}/submodule/zstd")
+require_static_target(libzstd_static)
+
+# lz4's own CMake build is driven by the global BUILD_SHARED_LIBS; four sources
+# are simpler.  lz4hc.c is referenced by lz4frame.c; --gc-sections drops it.
+add_library(adbc_lz4 STATIC
+    "${_lz4_src}/lib/lz4.c"
+    "${_lz4_src}/lib/lz4frame.c"
+    "${_lz4_src}/lib/lz4hc.c"
+    "${_lz4_src}/lib/xxhash.c"
+)
+target_include_directories(adbc_lz4 PUBLIC "${_lz4_src}/lib")
+
+target_compile_definitions(${_nanoarrow_ipc_target} PRIVATE NANOARROW_IPC_WITH_ZSTD NANOARROW_IPC_WITH_LZ4)
+target_include_directories(${_nanoarrow_ipc_target} PRIVATE "${_zstd_src}/lib" "${_lz4_src}/lib")
+set(_ipc_codec_targets libzstd_static adbc_lz4)
 if (FIREBOLT_ADBC_STRIP_DEP_DEBUG)
     if (TARGET nanoarrow_static)
         target_compile_options(nanoarrow_static PRIVATE -g0)
@@ -275,6 +309,8 @@ if (FIREBOLT_ADBC_STRIP_DEP_DEBUG)
     if (TARGET flatccrt)
         target_compile_options(flatccrt PRIVATE -g0)
     endif ()
+    target_compile_options(libzstd_static PRIVATE -g0)
+    target_compile_options(adbc_lz4 PRIVATE -g0)
 endif ()
 
 configure_file(
@@ -325,6 +361,7 @@ target_link_libraries(adbc_driver_firebolt PRIVATE
     ${_curl_target}
     ${_nanoarrow_target}
     ${_nanoarrow_ipc_target}
+    ${_ipc_codec_targets}
 )
 if (UNIX)
     target_link_libraries(adbc_driver_firebolt PRIVATE m pthread)
@@ -445,6 +482,7 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         adbc_driver_firebolt
         ${_nanoarrow_target}
         ${_nanoarrow_ipc_target}
+        ${_ipc_codec_targets}
         ${_curl_target}
         ${CMAKE_DL_LIBS}
     )

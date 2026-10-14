@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <span>
 #include <string>
@@ -145,9 +146,10 @@ private:
     // The easy handle, reset for a new request; nullptr while a result stream holds
     // it.  Every request takes the handle here.
     CURL * takeHandle();
-    // Sends the request configured on the easy handle and waits for its response
-    // to start.  In FB2 SaaS (Legacy) mode a 401 re-authenticates and retries once.
-    StartedResponse sendAndAwaitResponseStart(const char * content_type, long idle_timeout_sec);
+    // Sends the request configured on the easy handle, with `extra_headers`, and
+    // waits for its response to start.  In FB2 SaaS (Legacy) mode a 401
+    // re-authenticates and retries once.
+    StartedResponse sendAndAwaitResponseStart(std::initializer_list<const char *> extra_headers, long idle_timeout_sec);
     void parseResponseHeaders(HttpResponse & resp) const;
     // Reads the rest of a started response into its `body`.
     static HttpResponse readWholeResponse(StartedResponse started);
