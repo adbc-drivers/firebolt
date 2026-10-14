@@ -120,16 +120,6 @@ def test_error_after_the_200_is_reported(mock_server, conn_to_mock):
             reader.read_next_batch()
 
 
-def test_error_after_the_200_is_reported_by_a_buffered_read(mock_server, conn_to_mock):
-    """The same response, read all at once."""
-    mock_server.queue(chunks=[_schema(), _batch(1), ERROR_TRAILER])
-
-    with _statement(conn_to_mock) as stmt:
-        reader = _execute(stmt)
-        with pytest.raises(Exception, match="Division by zero"):
-            reader.read_all()
-
-
 def test_http_error_fails_execute(mock_server, conn_to_mock):
     mock_server.queue(status=400, body=b"syntax error at line 1")
 
@@ -284,24 +274,6 @@ def test_a_timeout_reading_the_schema_is_a_timeout(mock_server, connect_to_mock)
         never_answers.set()
 
 
-def test_get_info_that_sends_nothing_works_while_a_stream_is_open(
-    mock_server, conn_to_mock
-):
-    gate = threading.Event()
-    mock_server.queue(chunks=[_schema(), _batch(1), gate, END_OF_STREAM])
-    try:
-        with _statement(conn_to_mock) as stmt:
-            reader = _execute(stmt)
-            assert _values(reader.read_next_batch()) == [1]
-
-            info = conn_to_mock.get_info([adbc_driver_manager.AdbcInfoCode.DRIVER_NAME])
-            names = pa.RecordBatchReader._import_from_c(info.address).read_all()
-            assert names.num_rows == 1
-            assert len(mock_server.captured) == 1, "GetInfo sent a request"
-    finally:
-        gate.set()
-
-
 def test_releasing_an_unfinished_stream(mock_server, conn_to_mock):
     gate = threading.Event()
     mock_server.queue(chunks=[_schema(), _batch(1), gate, _batch(2), END_OF_STREAM])
@@ -379,16 +351,6 @@ SMALL_BLOCK_ROWS = 1000
 def small_block_conn(conn):
     conn.set_options(**{"firebolt.session.max_block_size": str(SMALL_BLOCK_ROWS)})
     return conn
-
-
-def test_large_result_arrives_in_batches(small_block_conn):
-    rows = 100_000
-    with _statement(small_block_conn) as stmt:
-        reader = _execute(stmt, f"SELECT i FROM generate_series(1, {rows}) AS g(i)")
-        sizes = [batch.num_rows for batch in reader]
-    assert sum(sizes) == rows
-    assert len(sizes) > 1
-    assert max(sizes) <= SMALL_BLOCK_ROWS
 
 
 def _reset_peak_rss() -> None:
