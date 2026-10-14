@@ -196,43 +196,35 @@ static AdbcStatusCode RunIngestPreSql(FireboltConnection * conn, const std::stri
 // Serialises an ArrowArrayStream into Arrow IPC stream bytes using nanoarrow.
 // ============================================================
 
-static std::string SerializeArrayStream(ArrowArrayStream * stream, std::vector<uint8_t> & out)
+// Replaces the contents of `out` with the stream's IPC bytes; empty on failure.
+static std::string SerializeArrayStream(ArrowArrayStream * stream, ArrowBuffer * out)
 {
-    // ArrowIpcOutputStreamInitBuffer stores a pointer to buf (does NOT take ownership).
+    ArrowBufferReset(out);
+    // ArrowIpcOutputStreamInitBuffer stores a pointer to `out` (does NOT take ownership).
     // ArrowIpcWriterInit takes ownership of the output stream via ArrowIpcOutputStreamMove.
-    // After ArrowIpcWriterReset, buf is still valid and holds the written IPC bytes.
-    ArrowBuffer buf{};
-    ArrowBufferInit(&buf);
-
+    // After ArrowIpcWriterReset, `out` is still valid and holds the written IPC bytes.
     ArrowIpcOutputStream out_stream{};
-    if (ArrowIpcOutputStreamInitBuffer(&out_stream, &buf) != 0)
-    {
-        ArrowBufferReset(&buf);
+    if (ArrowIpcOutputStreamInitBuffer(&out_stream, out) != 0)
         return "ArrowIpcOutputStreamInitBuffer failed";
-    }
 
     ArrowIpcWriter writer{};
     if (ArrowIpcWriterInit(&writer, &out_stream) != 0)
     {
         if (out_stream.release)
             out_stream.release(&out_stream);
-        ArrowBufferReset(&buf);
         return "ArrowIpcWriterInit failed";
     }
     // writer owns out_stream now; out_stream.release should not be called separately
 
     ArrowError error{};
     int rc = ArrowIpcWriterWriteArrayStream(&writer, stream, &error);
-    ArrowIpcWriterReset(&writer); // releases writer + out_stream (not buf)
+    ArrowIpcWriterReset(&writer); // releases writer + out_stream (not `out`)
 
     if (rc != 0)
     {
-        ArrowBufferReset(&buf);
+        ArrowBufferReset(out);
         return std::string("ArrowIpcWriterWriteArrayStream: ") + error.message;
     }
-
-    out.assign(buf.data, buf.data + buf.size_bytes);
-    ArrowBufferReset(&buf);
     return {};
 }
 
@@ -243,7 +235,7 @@ static std::string SerializeArrayStream(ArrowArrayStream * stream, std::vector<u
 // Consumes the batches — ArrowBasicArrayStreamSetArray takes ownership of each, and
 // the payload is single-use.  The stream takes ownership of its schema too, hence
 // the copy: buildIngestSql still needs the statement's own.
-static AdbcStatusCode SerializeBoundData(BoundData & bound, std::vector<uint8_t> & out, AdbcError * error)
+static AdbcStatusCode SerializeBoundData(BoundData & bound, nanoarrow::UniqueBuffer & out, AdbcError * error)
 {
     // Reachable in append mode, the one mode buildIngestSql needs no schema for.
     if (!bound.schema->release)
@@ -261,7 +253,7 @@ static AdbcStatusCode SerializeBoundData(BoundData & bound, std::vector<uint8_t>
         ArrowBasicArrayStreamSetArray(stream.get(), static_cast<int64_t>(i), bound.batches[i].get());
     bound.batches.clear();
 
-    std::string err = SerializeArrayStream(stream.get(), out);
+    std::string err = SerializeArrayStream(stream.get(), out.get());
     if (!err.empty())
         return SetError(error, ADBC_STATUS_INTERNAL, err);
     return ADBC_STATUS_OK;
@@ -1321,7 +1313,7 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
         // text untouched so it stays re-executable.
         std::string sql = fs->sql;
         std::vector<std::string> pre_sql;
-        std::vector<uint8_t> ipc_bytes;
+        nanoarrow::UniqueBuffer ipc_bytes;
         if (is_ingest)
         {
             AdbcStatusCode rc = buildIngestSql(fs, pre_sql, sql, error);
@@ -1347,7 +1339,7 @@ static AdbcStatusCode StatementExecuteQuery(AdbcStatement * stmt, ArrowArrayStre
         std::vector<std::vector<uint8_t>> parameter_response_bodies;
         if (is_ingest)
         {
-            resp = conn->http->executeInsert(sql, ipc_bytes, conn->session_params);
+            resp = conn->http->executeInsert(sql, {ipc_bytes->data, static_cast<size_t>(ipc_bytes->size_bytes)}, conn->session_params);
             ApplySessionUpdates(conn, resp);
             if (!resp.isSuccess())
                 return IngestHttpRespToStatus(resp, fs->bound->mode, error);

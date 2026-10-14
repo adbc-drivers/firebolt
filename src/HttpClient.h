@@ -14,8 +14,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -115,12 +117,11 @@ public:
     // SELECT / DDL, with the whole body read into the response.
     HttpResponse executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params);
 
-    // INSERT with Arrow IPC payload.  The byte buffer is borrowed for the
-    // duration of the call — libcurl's curl_mime_data copies the bytes into
-    // its own storage, so no ownership transfer is needed.
+    // INSERT with Arrow IPC payload.  The bytes are borrowed for the duration of
+    // the call and uploaded from where they are, not copied.
     HttpResponse executeInsert(
         const std::string & sql,
-        const std::vector<uint8_t> & arrow_ipc_bytes,
+        std::span<const uint8_t> arrow_ipc_bytes,
         const std::unordered_map<std::string, std::string> & session_params);
 
     // Whether a response from startQuery still holds the connection's handles.  A

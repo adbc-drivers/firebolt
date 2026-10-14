@@ -16,9 +16,11 @@
 #include "FireboltAdbcConnection.h"
 #include "FireboltAdbcDatabase.h"
 #include "HttpHeaderParse.h"
+#include "IO/ReadBufferFromMemory.h"
 #include "IO/ReadHelpers.h"
 #include "fb2/Fb2LegacyMode.h"
 
+#include <cstdio>
 #include <cstring>
 
 #include <curl/curl.h>
@@ -36,6 +38,24 @@ namespace
         if (encoded)
             curl_free(encoded);
         return result;
+    }
+
+    // libcurl's read and seek callbacks for an upload part held in a ReadBufferFromMemory.
+    // Seeking to the start lets libcurl send the request again (the FB2 401 retry).
+    size_t readUploadPart(char * buffer, size_t size, size_t nitems, void * payload)
+    {
+        size_t bytes_read = 0;
+        static_cast<ReadBufferFromMemory *>(payload)->read(reinterpret_cast<uint8_t *>(buffer), size * nitems, bytes_read);
+        return bytes_read;
+    }
+
+    int seekUploadPart(void * payload, curl_off_t offset, int origin)
+    {
+        if (origin != SEEK_SET)
+            return CURL_SEEKFUNC_CANTSEEK; // libcurl falls back to reading forward
+        if (offset < 0 || !static_cast<ReadBufferFromMemory *>(payload)->seek(static_cast<size_t>(offset)))
+            return CURL_SEEKFUNC_FAIL;
+        return CURL_SEEKFUNC_OK;
     }
 
 } // namespace
@@ -205,9 +225,7 @@ HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unorde
 }
 
 HttpResponse HttpClient::executeInsert(
-    const std::string & sql,
-    const std::vector<uint8_t> & arrow_ipc_bytes,
-    const std::unordered_map<std::string, std::string> & session_params)
+    const std::string & sql, std::span<const uint8_t> arrow_ipc_bytes, const std::unordered_map<std::string, std::string> & session_params)
 {
     CURL * handle = takeHandle();
     if (!handle)
@@ -232,7 +250,9 @@ HttpResponse HttpClient::executeInsert(
     curl_mime_name(arrow_part, "data.arrow");
     curl_mime_filename(arrow_part, "data.arrow");
     curl_mime_type(arrow_part, "application/octet-stream");
-    curl_mime_data(arrow_part, reinterpret_cast<const char *>(arrow_ipc_bytes.data()), arrow_ipc_bytes.size());
+    // Handed to libcurl a slice at a time, so the payload is never copied.
+    ReadBufferFromMemory payload(arrow_ipc_bytes);
+    curl_mime_data_cb(arrow_part, static_cast<curl_off_t>(arrow_ipc_bytes.size()), readUploadPart, seekUploadPart, nullptr, &payload);
 
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
