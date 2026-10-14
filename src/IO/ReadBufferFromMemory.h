@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -25,11 +26,26 @@
 namespace firebolt::adbc
 {
 
-// Bytes already in memory, such as a response body read whole.
+// Bytes already in memory: owned, such as a response body read whole, or
+// borrowed, such as an upload payload.
 class ReadBufferFromMemory final : public IReadBuffer
 {
 public:
-    explicit ReadBufferFromMemory(std::vector<uint8_t> bytes) : bytes(std::move(bytes)) { }
+    explicit ReadBufferFromMemory(std::vector<uint8_t> owned_bytes) : owned(std::move(owned_bytes)), bytes(owned) { }
+    // `borrowed` must outlive this buffer.
+    explicit ReadBufferFromMemory(std::span<const uint8_t> borrowed) : bytes(borrowed) { }
+
+    ReadBufferFromMemory(const ReadBufferFromMemory &) = delete;
+    ReadBufferFromMemory & operator=(const ReadBufferFromMemory &) = delete;
+
+    // Read from `position` next; false, and nothing changes, if it is past the end.
+    bool seek(size_t position)
+    {
+        if (position > bytes.size())
+            return false;
+        offset = position;
+        return true;
+    }
 
     Status read(uint8_t * buffer, size_t size, size_t & bytes_read) override
     {
@@ -40,7 +56,8 @@ public:
     }
 
 private:
-    std::vector<uint8_t> bytes;
+    std::vector<uint8_t> owned;
+    std::span<const uint8_t> bytes;
     size_t offset = 0;
 };
 

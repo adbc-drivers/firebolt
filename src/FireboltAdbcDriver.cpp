@@ -196,8 +196,10 @@ static AdbcStatusCode RunIngestPreSql(FireboltConnection * conn, const std::stri
 // Serialises an ArrowArrayStream into Arrow IPC stream bytes using nanoarrow.
 // ============================================================
 
+// Replaces the contents of `out` with the stream's IPC bytes; empty on failure.
 static std::string SerializeArrayStream(ArrowArrayStream * stream, ArrowBuffer * out)
 {
+    ArrowBufferReset(out);
     // ArrowIpcOutputStreamInitBuffer stores a pointer to `out` (does NOT take ownership).
     // ArrowIpcWriterInit takes ownership of the output stream via ArrowIpcOutputStreamMove.
     // After ArrowIpcWriterReset, `out` is still valid and holds the written IPC bytes.
@@ -219,7 +221,10 @@ static std::string SerializeArrayStream(ArrowArrayStream * stream, ArrowBuffer *
     ArrowIpcWriterReset(&writer); // releases writer + out_stream (not `out`)
 
     if (rc != 0)
+    {
+        ArrowBufferReset(out);
         return std::string("ArrowIpcWriterWriteArrayStream: ") + error.message;
+    }
     return {};
 }
 

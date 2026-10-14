@@ -414,7 +414,7 @@ if (FIREBOLT_ADBC_BUILD_TESTS)
         tests/unit/session_state_test.cpp
         tests/unit/tls_config_test.cpp
         tests/unit/firebolt_uri_test.cpp
-        tests/unit/upload_payload_test.cpp
+        tests/unit/read_buffer_from_memory_test.cpp
         src/FireboltUri.cpp
         ${_fb2_tests}
         src/ArrowIpcStream.cpp
