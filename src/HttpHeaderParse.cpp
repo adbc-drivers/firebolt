@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "HttpHeaderParse.h"
+#include "StringUtils.h"
 
 #include <sstream>
 #include <string_view>
@@ -44,18 +45,6 @@ namespace
                 continue;
             cb(std::string_view(h->value));
         }
-    }
-
-    void trim(std::string & s)
-    {
-        const auto first = s.find_first_not_of(" \t");
-        if (first == std::string::npos)
-        {
-            s.clear();
-            return;
-        }
-        s.erase(0, first);
-        s.erase(s.find_last_not_of(" \t") + 1);
     }
 
 } // namespace

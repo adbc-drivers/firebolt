@@ -31,13 +31,17 @@
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow_ipc.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <mutex>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include <curl/curl.h>
 
@@ -50,6 +54,35 @@ namespace firebolt::adbc
 
 // SQL identifier quoting, table qualification, and Arrow→Firebolt type mapping
 // helpers live in IngestSqlBuilder.{h,cpp}.
+
+// The Arrow IPC compression codecs nanoarrow is built with (CMakeLists.txt), most preferred first.
+constexpr const char * ALL_ARROW_CODECS = "zstd, lz4";
+
+// The codec list a firebolt.arrow_compression value offers, joined by ", " (empty
+// for none); nullopt for a value that is not "true", "false" or a list of distinct
+// codecs from ALL_ARROW_CODECS.
+static std::optional<std::string> ParseArrowCodecs(const std::string & value)
+{
+    if (value == ADBC_OPTION_VALUE_ENABLED)
+        return ALL_ARROW_CODECS;
+    if (value == ADBC_OPTION_VALUE_DISABLED)
+        return "";
+    if (value.empty() || value.back() == ',')
+        return std::nullopt;
+    std::vector<std::string> codecs;
+    std::istringstream list(value);
+    for (std::string codec; std::getline(list, codec, ',');)
+    {
+        trim(codec);
+        if ((codec != "zstd" && codec != "lz4") || std::find(codecs.begin(), codecs.end(), codec) != codecs.end())
+            return std::nullopt;
+        codecs.push_back(codec);
+    }
+    std::string joined;
+    for (const std::string & codec : codecs)
+        joined += (joined.empty() ? "" : ", ") + codec;
+    return joined;
+}
 
 static AdbcStatusCode SetError(AdbcError * e, AdbcStatusCode code, const std::string & msg)
 {
@@ -368,15 +401,15 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
         fdb->ssl_certificate_path = v;
     else if (k == "firebolt.arrow_compression")
     {
-        if (v != ADBC_OPTION_VALUE_ENABLED && v != ADBC_OPTION_VALUE_DISABLED)
+        std::optional<std::string> codecs = ParseArrowCodecs(v);
+        if (!codecs)
             return RejectOption(
                 fdb,
                 error,
                 ADBC_STATUS_INVALID_ARGUMENT,
-                "Option 'firebolt.arrow_compression' must be exactly \"" ADBC_OPTION_VALUE_ENABLED "\" or \"" ADBC_OPTION_VALUE_DISABLED
-                "\"; got '"
-                    + v + "'");
-        fdb->arrow_compression = v == ADBC_OPTION_VALUE_ENABLED;
+                std::string("Option 'firebolt.arrow_compression' must be \"true\", \"false\" or a comma-separated list of codecs from \"")
+                    + ALL_ARROW_CODECS + "\"; got '" + v + "'");
+        fdb->arrow_codecs = *codecs;
     }
     else if (k == "firebolt.timeout_sec")
     {

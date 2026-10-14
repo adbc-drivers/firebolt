@@ -35,7 +35,7 @@ struct FireboltDatabase
     std::string database; // "firebolt.database" — database name (optional)
     long timeout_sec = 0; // "firebolt.timeout_sec" — 0 means no timeout (libcurl default)
     std::string ssl_certificate_path; // "firebolt.ssl_certificate_path" — CA bundle override
-    bool arrow_compression = true; // "firebolt.arrow_compression" — offer zstd/lz4 Arrow IPC
+    std::string arrow_codecs = "zstd, lz4"; // "firebolt.arrow_compression" — codecs offered in Accept, "" for none
     std::string ca_bundle_path; // resolved at DatabaseInit for https://; see TlsConfig.h
     bool initialized = false;
 

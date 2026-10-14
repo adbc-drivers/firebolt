@@ -60,27 +60,44 @@ def test_query_sends_codecs_in_accept_header(mock_server, conn_to_mock):
     assert headers.get("accept") == ACCEPT
 
 
-def test_arrow_compression_false_sends_no_codecs(mock_server):
+def _accept_sent_with(mock_server, value: str) -> str:
     mock_server.queue(body=_stream(None, _batch(0, 1)))
     with (
         adbc_driver_manager.AdbcDatabase(
             driver=ADBC_DRIVER_PATH,
             uri=mock_server.url,
-            **{"firebolt.arrow_compression": "false"},
+            **{"firebolt.arrow_compression": value},
         ) as db,
         adbc_driver_manager.AdbcConnection(db) as conn,
     ):
         _read(conn)
     headers = {k.lower(): v for k, v in mock_server.last_request.headers.items()}
-    assert headers.get("accept") == "application/vnd.apache.arrow.stream"
+    return headers.get("accept")
 
 
-def test_arrow_compression_rejects_other_values(mock_server):
+@pytest.mark.parametrize(
+    "value, accept",
+    [
+        ("true", ACCEPT),
+        ("false", "application/vnd.apache.arrow.stream"),
+        ("zstd", 'application/vnd.apache.arrow.stream; codecs="zstd"'),
+        ("lz4", 'application/vnd.apache.arrow.stream; codecs="lz4"'),
+        ("lz4,zstd", 'application/vnd.apache.arrow.stream; codecs="lz4, zstd"'),
+        (" zstd , lz4 ", ACCEPT),
+    ],
+)
+def test_arrow_compression_value_sets_accept_codecs(mock_server, value, accept):
+    """A codec list is sent as given, in the caller's order of preference."""
+    assert _accept_sent_with(mock_server, value) == accept
+
+
+@pytest.mark.parametrize("value", ["gzip", "zstd,gzip", "zstd,,lz4", "zstd,zstd", "", "TRUE"])
+def test_arrow_compression_rejects_other_values(mock_server, value):
     with pytest.raises(adbc_driver_manager.Error, match="arrow_compression") as exc:
         adbc_driver_manager.AdbcDatabase(
             driver=ADBC_DRIVER_PATH,
             uri=mock_server.url,
-            **{"firebolt.arrow_compression": "zstd"},
+            **{"firebolt.arrow_compression": value},
         )
     assert exc.value.status_code == adbc_driver_manager.AdbcStatusCode.INVALID_ARGUMENT
 

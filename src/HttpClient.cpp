@@ -215,12 +215,13 @@ StartedResponse HttpClient::startQuery(const std::string & sql, const std::unord
     applyTlsOptions();
 
     // Content-Type: text/plain so the server knows body is raw SQL.  Accept names
-    // the Arrow IPC compression codecs nanoarrow is built with (CMakeLists.txt),
-    // unless firebolt.arrow_compression is off.  The timeout bounds each wait for
-    // the server, not the time the caller takes to read.
-    const char * accept = fb_conn.db->arrow_compression ? "Accept: application/vnd.apache.arrow.stream; codecs=\"zstd, lz4\""
-                                                        : "Accept: application/vnd.apache.arrow.stream";
-    return sendAndAwaitResponseStart({"Content-Type: text/plain; charset=utf-8", accept}, fb_conn.db->timeout_sec);
+    // the Arrow IPC compression codecs firebolt.arrow_compression allows, out of
+    // those nanoarrow is built with (CMakeLists.txt).  The timeout bounds each wait
+    // for the server, not the time the caller takes to read.
+    std::string accept = "Accept: application/vnd.apache.arrow.stream";
+    if (!fb_conn.db->arrow_codecs.empty())
+        accept += "; codecs=\"" + fb_conn.db->arrow_codecs + "\"";
+    return sendAndAwaitResponseStart({"Content-Type: text/plain; charset=utf-8", accept.c_str()}, fb_conn.db->timeout_sec);
 }
 
 HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
