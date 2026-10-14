@@ -46,6 +46,7 @@ Set on `AdbcDatabase` before `AdbcDatabaseInit` (`db_kwargs` in Python).
 | `firebolt.database` | no | server default | Database name, appended to every request URL as `database=<value>`. |
 | `firebolt.ssl_certificate_path` | no | system bundle | PEM file of CA certificates that verify an `https://` peer. Without it the driver uses `SSL_CERT_FILE` if set, else the first of `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`, `/etc/ssl/cert.pem` that exists. Verification cannot be switched off. |
 | `firebolt.timeout_sec` | no | `0` | Whole seconds. For a query, the longest the driver waits for the server to send more of its response — before the result starts, or between parts of it. Time your application spends between reading batches does not count. For an ingest upload, the total request time. `0` disables it. Rejected with `ADBC_STATUS_INVALID_ARGUMENT` if not a non-negative integer. |
+| `firebolt.arrow_compression` | no | `any` | `any` lets the server send results compressed (zstd or lz4), which the driver unpacks: less data over the network. `none` asks for uncompressed results. `zstd` or `lz4` allows only that codec (a comma-separated list allows several); the server picks among those allowed. |
 
 ### `firebolt://` URIs
 
@@ -81,6 +82,7 @@ Errors:
 | `uri` is `https://` and no system CA bundle exists | `ADBC_STATUS_INVALID_STATE` |
 | `uri` or `firebolt.ssl_certificate_path` set after `Init` | `ADBC_STATUS_INVALID_STATE`, at once |
 | `firebolt.timeout_sec` not a non-negative integer | `ADBC_STATUS_INVALID_ARGUMENT` |
+| `firebolt.arrow_compression` not `any`, `none` or a list of `zstd`/`lz4` | `ADBC_STATUS_INVALID_ARGUMENT` |
 | unknown `firebolt.*` key | `ADBC_STATUS_NOT_FOUND` |
 
 All of these surface when you **open** the database, not from the individual

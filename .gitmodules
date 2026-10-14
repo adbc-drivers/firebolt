@@ -27,3 +27,9 @@
 [submodule "submodule/json"]
 	path = submodule/json
 	url = https://github.com/nlohmann/json.git
+[submodule "submodule/zstd"]
+	path = submodule/zstd
+	url = https://github.com/facebook/zstd.git
+[submodule "submodule/lz4"]
+	path = submodule/lz4
+	url = https://github.com/lz4/lz4.git

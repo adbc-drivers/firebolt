@@ -35,7 +35,7 @@ material — generate test certificates at run time.
 ├── CMakeLists.txt                    # standalone build; project(VERSION) is the one version number
 ├── adbc.h                            # vendored ADBC 1.1.0 C API header
 ├── adbc_driver_firebolt.{version,exports}  # Linux/macOS linker export allowlists
-├── submodule/                        # every non-system dependency (curl, BoringSSL, nanoarrow, json, …)
+├── submodule/                        # every non-system dependency (curl, BoringSSL, nanoarrow, zstd, lz4, json, …)
 ├── src/                              # the driver
 │   ├── FireboltAdbcDriver.cpp        # ADBC entry points: database, connection, statement
 │   ├── HttpClient.*                  # libcurl wrapper for Firebolt's HTTP query protocol
@@ -99,8 +99,8 @@ Beyond what pre-commit and clang-tidy enforce:
 - **No packdb internal headers** — the library must load outside the server process.
 - **No dependency discovery in CMake** — no `find_package`, `find_library`,
   `find_path`, `find_program`, or `FetchContent` for required deps. Every non-system
-  dep lives under `submodule/` and is linked statically: curl, nanoarrow,
-  nlohmann/json (header-only, pinned to packdb's `v3.12.0`), googletest, and
+  dep lives under `submodule/` and is linked statically: curl, nanoarrow, zstd
+  and lz4 (decompression only, for compressed Arrow IPC), nlohmann/json (header-only, pinned to packdb's `v3.12.0`), googletest, and
   BoringSSL on Linux and macOS (Windows uses Schannel). System runtime libraries
   stay dynamic.
 - **nanoarrow, not Arrow C++** — zero deps, PIC, and full Arrow IPC stream support.
@@ -189,7 +189,10 @@ under "Other environments".
 ## HTTP Protocol
 
 - **SELECT / DDL**: `POST {url}?output_format=ArrowStream&database=...` with the SQL
-  as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`.
+  as the body; the response is an Arrow IPC stream. Sends `Firebolt-Protocol-Version: 2.4`
+  and `Accept: application/vnd.apache.arrow.stream; codecs="zstd, lz4"` — the codecs
+  nanoarrow is built with, narrowed by a codec list in
+  `firebolt.arrow_compression` and dropped when it is `none`.
 - **Results stream**: ExecuteQuery returns once the response starts (status and
   headers known); `ReadBufferFromHttpResponse` pumps its own `curl_multi` handle only while a
   reader waits for bytes, so nothing is buffered beyond a socket read. A query that

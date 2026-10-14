@@ -26,6 +26,8 @@ license_files=(
   "submodule/boringssl/third_party/fiat/LICENSE"
   "submodule/curl/COPYING"
   "submodule/json/LICENSE.MIT"
+  "submodule/zstd/LICENSE"
+  "submodule/lz4/lib/LICENSE"
 )
 
 for license_file in "${license_files[@]}"; do
@@ -59,3 +61,5 @@ append_component \
   "submodule/boringssl/third_party/fiat/LICENSE"
 append_component "curl" "submodule/curl/COPYING"
 append_component "nlohmann/json" "submodule/json/LICENSE.MIT"
+append_component "Zstandard (zstd)" "submodule/zstd/LICENSE"
+append_component "LZ4 library" "submodule/lz4/lib/LICENSE"
