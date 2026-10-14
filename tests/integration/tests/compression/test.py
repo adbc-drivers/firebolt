@@ -58,13 +58,13 @@ def test_query_accepts_compressed_arrow(mock_server, conn_to_mock):
     assert headers.get("accept") == ACCEPT
 
 
-def test_result_compression_false_sends_no_codecs(mock_server):
+def test_arrow_compression_false_sends_no_codecs(mock_server):
     mock_server.queue(body=_stream(None, _batch(0, 1)))
     with (
         adbc_driver_manager.AdbcDatabase(
             driver=ADBC_DRIVER_PATH,
             uri=mock_server.url,
-            **{"firebolt.result_compression": "false"},
+            **{"firebolt.arrow_compression": "false"},
         ) as db,
         adbc_driver_manager.AdbcConnection(db) as conn,
     ):
@@ -73,12 +73,12 @@ def test_result_compression_false_sends_no_codecs(mock_server):
     assert headers.get("accept") == "application/vnd.apache.arrow.stream"
 
 
-def test_result_compression_rejects_other_values(mock_server):
-    with pytest.raises(adbc_driver_manager.Error, match="result_compression") as exc:
+def test_arrow_compression_rejects_other_values(mock_server):
+    with pytest.raises(adbc_driver_manager.Error, match="arrow_compression") as exc:
         adbc_driver_manager.AdbcDatabase(
             driver=ADBC_DRIVER_PATH,
             uri=mock_server.url,
-            **{"firebolt.result_compression": "zstd"},
+            **{"firebolt.arrow_compression": "zstd"},
         )
     assert exc.value.status_code == adbc_driver_manager.AdbcStatusCode.INVALID_ARGUMENT
 

@@ -204,7 +204,7 @@ Set these in `db_kwargs`:
 | `firebolt.token` | Bearer token; omit when authentication is disabled |
 | `firebolt.timeout_sec` | How long to wait for the server, in seconds; `0` (default) means no limit ([details](OPTIONS.md)) |
 | `firebolt.ssl_certificate_path` | PEM CA bundle for `https://`, if not the system one |
-| `firebolt.result_compression` | `true` (default): offer the server zstd/lz4-compressed results; `false`: ask for uncompressed ones ([details](OPTIONS.md)) |
+| `firebolt.arrow_compression` | `true` (default): accept Arrow record batches compressed with zstd or lz4; `false`: ask for uncompressed ones ([details](OPTIONS.md)) |
 
 Connection and statement options are in **[OPTIONS.md](OPTIONS.md)**. These names
 will change when the driver adopts Firebolt's common SDK parameter names

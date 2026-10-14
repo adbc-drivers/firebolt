@@ -216,10 +216,10 @@ StartedResponse HttpClient::startQuery(const std::string & sql, const std::unord
 
     // Content-Type: text/plain so the server knows body is raw SQL.  Accept names
     // the Arrow IPC compression codecs nanoarrow is built with (CMakeLists.txt),
-    // unless firebolt.result_compression is off.  The timeout bounds each wait for
+    // unless firebolt.arrow_compression is off.  The timeout bounds each wait for
     // the server, not the time the caller takes to read.
-    const char * accept = fb_conn.db->result_compression ? "Accept: application/vnd.apache.arrow.stream; codecs=\"zstd, lz4\""
-                                                         : "Accept: application/vnd.apache.arrow.stream";
+    const char * accept = fb_conn.db->arrow_compression ? "Accept: application/vnd.apache.arrow.stream; codecs=\"zstd, lz4\""
+                                                        : "Accept: application/vnd.apache.arrow.stream";
     return sendAndAwaitResponseStart({"Content-Type: text/plain; charset=utf-8", accept}, fb_conn.db->timeout_sec);
 }
 

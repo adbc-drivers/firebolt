@@ -366,17 +366,17 @@ static AdbcStatusCode DatabaseSetOption(AdbcDatabase * db, const char * key, con
         fdb->database = v;
     else if (k == "firebolt.ssl_certificate_path")
         fdb->ssl_certificate_path = v;
-    else if (k == "firebolt.result_compression")
+    else if (k == "firebolt.arrow_compression")
     {
         if (v != ADBC_OPTION_VALUE_ENABLED && v != ADBC_OPTION_VALUE_DISABLED)
             return RejectOption(
                 fdb,
                 error,
                 ADBC_STATUS_INVALID_ARGUMENT,
-                "Option 'firebolt.result_compression' must be exactly \"" ADBC_OPTION_VALUE_ENABLED "\" or \"" ADBC_OPTION_VALUE_DISABLED
+                "Option 'firebolt.arrow_compression' must be exactly \"" ADBC_OPTION_VALUE_ENABLED "\" or \"" ADBC_OPTION_VALUE_DISABLED
                 "\"; got '"
                     + v + "'");
-        fdb->result_compression = v == ADBC_OPTION_VALUE_ENABLED;
+        fdb->arrow_compression = v == ADBC_OPTION_VALUE_ENABLED;
     }
     else if (k == "firebolt.timeout_sec")
     {
