@@ -76,7 +76,6 @@ is opened.
 | `firebolt.cache_connection` | no | `true` (default) or `false`. See [Caching](#caching). |
 | `firebolt.timeout_sec` | no | How long to wait for the server, in whole seconds ([details](../OPTIONS.md)); while connecting, it bounds each control-plane request. `0` (default) disables it. |
 | `firebolt.ssl_certificate_path` | no | PEM CA bundle, if the system one does not verify Firebolt's certificates. |
-| `firebolt.arrow_compression` | no | `true` (default) or `false`: whether queries accept zstd/lz4-compressed Arrow record batches ([details](../OPTIONS.md)). |
 
 ¹ Either the service account (both values) or `firebolt.token`, not both. Each
 credential may be set under one of its two names, not both.

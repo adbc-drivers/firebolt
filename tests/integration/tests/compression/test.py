@@ -51,7 +51,9 @@ def _read(conn) -> pa.Table:
         return pa.RecordBatchReader._import_from_c(stream.address).read_all()
 
 
-def test_query_accepts_compressed_arrow(mock_server, conn_to_mock):
+def test_query_sends_codecs_in_accept_header(mock_server, conn_to_mock):
+    """Checks the request only; the answer here is uncompressed (see the tests
+    below for compressed answers)."""
     mock_server.queue(body=_stream(None, _batch(0, 1)))
     _read(conn_to_mock)
     headers = {k.lower(): v for k, v in mock_server.last_request.headers.items()}
@@ -85,9 +87,16 @@ def test_arrow_compression_rejects_other_values(mock_server):
 
 @pytest.mark.parametrize("codec", ["zstd", "lz4"])
 def test_compressed_batches_are_read(mock_server, conn_to_mock, codec):
+    """The mock sends the batches compressed with `codec`: pyarrow compresses each
+    batch's buffers, so the body is smaller than the same batches uncompressed.
+    (A driver without the codec fails here with nanoarrow's "Compression type ...
+    not supported".)"""
     batches = [_batch(0, 5000), _batch(5000, 3)]
     body = _stream(codec, *batches)
-    assert len(body) < len(_stream(None, *batches)), "pyarrow did not compress"
+    uncompressed = _stream(None, *batches)
+    assert len(body) < len(uncompressed), (
+        f"{codec} body is {len(body)} bytes, uncompressed {len(uncompressed)}"
+    )
     mock_server.queue(body=body)
 
     assert _read(conn_to_mock) == pa.Table.from_batches(batches)
