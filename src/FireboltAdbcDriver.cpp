@@ -55,7 +55,7 @@ namespace firebolt::adbc
 // SQL identifier quoting, table qualification, and Arrow→Firebolt type mapping
 // helpers live in IngestSqlBuilder.{h,cpp}.
 
-// The Arrow IPC compression codecs nanoarrow is built with (CMakeLists.txt), most preferred first.
+// The Arrow IPC compression codecs nanoarrow is built with (CMakeLists.txt).
 constexpr const char * ALL_ARROW_CODECS = "zstd, lz4";
 
 // The codec list a firebolt.arrow_compression value offers, joined by ", " (empty

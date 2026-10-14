@@ -87,7 +87,7 @@ def _accept_sent_with(mock_server, value: str) -> str:
     ],
 )
 def test_arrow_compression_value_sets_accept_codecs(mock_server, value, accept):
-    """A codec list is sent as given, in the caller's order of preference."""
+    """A codec list is sent as given; the server picks among those codecs."""
     assert _accept_sent_with(mock_server, value) == accept
 
 
