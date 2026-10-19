@@ -16,6 +16,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <string_view>
 
 namespace firebolt::adbc
@@ -31,6 +32,19 @@ inline char * duplicateString(std::string_view value)
     std::memcpy(result, value.data(), value.size());
     result[value.size()] = '\0';
     return result;
+}
+
+// Strips leading and trailing spaces and tabs in place.
+inline void trim(std::string & s)
+{
+    const auto first = s.find_first_not_of(" \t");
+    if (first == std::string::npos)
+    {
+        s.clear();
+        return;
+    }
+    s.erase(0, first);
+    s.erase(s.find_last_not_of(" \t") + 1);
 }
 
 } // namespace firebolt::adbc

@@ -153,7 +153,7 @@ CURL * HttpClient::takeHandle()
     return handles->easy;
 }
 
-StartedResponse HttpClient::sendAndAwaitResponseStart(const char * content_type, long idle_timeout_sec)
+StartedResponse HttpClient::sendAndAwaitResponseStart(std::initializer_list<const char *> extra_headers, long idle_timeout_sec)
 {
     // The headers are rebuilt per attempt: a retry after re-authentication must
     // carry the new token.
@@ -162,8 +162,8 @@ StartedResponse HttpClient::sendAndAwaitResponseStart(const char * content_type,
         // FB2 SaaS (Legacy) mode hook: the token comes from the mode's cache.
         const std::string token = fb_conn.fb2 ? fb_conn.fb2->bearerToken() : fb_conn.token;
         curl_slist * headers = buildAuthHeader(token);
-        if (content_type)
-            headers = curl_slist_append(headers, content_type);
+        for (const char * header : extra_headers)
+            headers = curl_slist_append(headers, header);
 
         StartedResponse started;
         started.body = std::make_unique<ReadBufferFromHttpResponse>(handles, headers, idle_timeout_sec);
@@ -214,9 +214,14 @@ StartedResponse HttpClient::startQuery(const std::string & sql, const std::unord
     curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS, sql.c_str());
     applyTlsOptions();
 
-    // Content-Type: text/plain so the server knows body is raw SQL.  The timeout
-    // bounds each wait for the server, not the time the caller takes to read.
-    return sendAndAwaitResponseStart("Content-Type: text/plain; charset=utf-8", fb_conn.db->timeout_sec);
+    // Content-Type: text/plain so the server knows body is raw SQL.  Accept names
+    // the Arrow IPC compression codecs firebolt.arrow_compression allows, out of
+    // those nanoarrow is built with (CMakeLists.txt).  The timeout bounds each wait
+    // for the server, not the time the caller takes to read.
+    std::string accept = "Accept: application/vnd.apache.arrow.stream";
+    if (!fb_conn.db->arrow_codecs.empty())
+        accept += "; codecs=\"" + fb_conn.db->arrow_codecs + "\"";
+    return sendAndAwaitResponseStart({"Content-Type: text/plain; charset=utf-8", accept.c_str()}, fb_conn.db->timeout_sec);
 }
 
 HttpResponse HttpClient::executeQuery(const std::string & sql, const std::unordered_map<std::string, std::string> & session_params)
@@ -257,7 +262,7 @@ HttpResponse HttpClient::executeInsert(
     curl_easy_setopt(handle, CURLOPT_MIMEPOST, mime);
 
     // CURLOPT_TIMEOUT bounds the whole upload, so no wait of its own.
-    HttpResponse resp = readWholeResponse(sendAndAwaitResponseStart(nullptr, 0));
+    HttpResponse resp = readWholeResponse(sendAndAwaitResponseStart({}, 0));
     curl_mime_free(mime);
     return resp;
 }
