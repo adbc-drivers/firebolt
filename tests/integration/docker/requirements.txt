@@ -13,6 +13,6 @@
 # limitations under the License.
 
 adbc-driver-manager==1.12.0
-pyarrow==25.0.1
+pyarrow==26.0.0
 pytest==9.1.1
 requests==2.34.2
