@@ -22,6 +22,46 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+### Added
+
+- **Compressed results.** The driver reads zstd- and lz4-compressed Arrow IPC
+  record batches and offers both codecs in every query's `Accept` header, so a
+  server that supports it sends less data over the network. The new
+  `firebolt.arrow_compression` database option picks the codecs offered: `any`
+  (the default), `none`, or `zstd`/`lz4` (a comma-separated list offers several);
+  any other value fails `AdbcDatabaseInit` with `ADBC_STATUS_INVALID_ARGUMENT`.
+  zstd and lz4 are linked statically, decompression only.
+
+### Changed
+
+- **SELECT results stream.** `ExecuteQuery` returns as soon as the response
+  starts, and record batches are decoded as the caller reads them, instead of
+  after the whole response is buffered (about 2× its size in memory).
+- **One result stream at a time per connection.** While a result stream is open,
+  any call that sends a request — another execute, `Commit`/`Rollback`,
+  `GetInfo`/`GetObjects`/`GetTableSchema`, `GetParameterSchema` — fails with
+  `ADBC_STATUS_INVALID_STATE` without sending anything. Reading the stream to the
+  end or releasing it frees the connection. With dbapi, `cur.fetchone()` followed
+  by `conn.commit()` now fails until the cursor is closed. See
+  [OPTIONS.md](OPTIONS.md#one-result-stream-at-a-time).
+- **`firebolt.timeout_sec` bounds each wait for the server** on queries (query
+  start and pauses mid-stream), not the whole request; time the application spends
+  between reads no longer counts. Ingest keeps the total-time meaning.
+- **Bulk ingest holds one copy of the encoded payload instead of two**: libcurl
+  reads the upload straight from the driver's buffer.
+
+### Fixed
+
+- **Errors after the HTTP 200 are reported.** When a query fails after its result
+  has started, the server's error text is returned instead of
+  `Expected prefix 8 prefix header bytes but found 4`.
+- **The connection entry points catch exceptions.** `ConnectionSetOption`,
+  `GetOption`, `GetInfo`, `GetObjects`, `GetTableSchema`, `GetTableTypes`,
+  `Commit` and `Rollback` could let an exception such as `bad_alloc` cross the C
+  ABI and abort the host process; they now return `ADBC_STATUS_INTERNAL`.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added
@@ -130,6 +170,7 @@ See [README.md](README.md#supported-today). In short: plaintext `http://` only
 pre-obtained bearer token, no discovery-based OAuth, Linux only, and no
 parameterized queries.
 
-[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/adbc-drivers/firebolt/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/adbc-drivers/firebolt/releases/tag/v0.1.1
