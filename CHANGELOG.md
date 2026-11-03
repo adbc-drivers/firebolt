@@ -22,6 +22,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+### Added
+
+- **Compressed results.** The driver reads zstd- and lz4-compressed Arrow IPC
+  results and offers both codecs to the server. The new
+  `firebolt.arrow_compression` option picks the codecs offered (`any`, the
+  default; `none`; or a list of `zstd`/`lz4`).
+
+### Changed
+
+- **SELECT results stream.** `ExecuteQuery` returns as soon as the response
+  starts and batches are decoded as they are read, instead of buffering the whole
+  response.
+- **One result stream at a time per connection.** While a stream is open, other
+  requests on the connection fail with `ADBC_STATUS_INVALID_STATE`; read the
+  stream to the end or release it first. See
+  [OPTIONS.md](OPTIONS.md#one-result-stream-at-a-time).
+- **`firebolt.timeout_sec` bounds each wait for the server** on queries, not the
+  whole request.
+- **Bulk ingest holds one copy of the encoded upload** instead of two.
+
+### Fixed
+
+- **Errors after the HTTP 200 are reported** with the server's error text.
+- **Connection entry points no longer let exceptions cross the C ABI**; they
+  return `ADBC_STATUS_INTERNAL`.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added
@@ -130,6 +158,7 @@ See [README.md](README.md#supported-today). In short: plaintext `http://` only
 pre-obtained bearer token, no discovery-based OAuth, Linux only, and no
 parameterized queries.
 
-[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/adbc-drivers/firebolt/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/adbc-drivers/firebolt/releases/tag/v0.1.1
