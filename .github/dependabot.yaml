@@ -29,7 +29,7 @@ updates:
 
   - package-ecosystem: "pip"
     commit-message:
-      prefix: "chore(test): "
+      prefix: "chore(tests): "
     directory: "/tests/integration/docker"
     groups:
       python:
