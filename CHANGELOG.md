@@ -26,11 +26,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
-- **curl 8.23.0** (was 8.22.0), clearing scanner findings for 20 curl advisories.
-  None reach the driver: its curl is built for HTTP(S) only, without cookies,
-  proxies, HSTS, HTTP authentication or HTTP/2. curl 8.23.0 dropped its
-  `HTTP_ONLY` build switch, so the other protocols are now disabled one by one,
-  and a unit test checks that curl offers only `http` and `https`.
+- **Updated curl to 8.23.0** so security scanners no longer flag the curl
+  advisories reported against 8.22.0. None of them affected the driver.
 
 ## [0.3.0] - 2026-11-02
 
