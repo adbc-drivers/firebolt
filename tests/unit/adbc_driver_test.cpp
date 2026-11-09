@@ -220,6 +220,23 @@ TEST(AdbcDriverInitTest, ExportsOnlyAdbcEntryPoints)
     CloseLibrary(library);
 }
 
+// The bundled libcurl speaks only HTTP(S): every other protocol is compiled out
+// in CMakeLists.txt, so a curl advisory for FTP, IMAP, TFTP, WebSockets and the
+// like has no code to reach in the driver.
+TEST(AdbcDriverInitTest, CurlSpeaksOnlyHttp)
+{
+    const curl_version_info_data * info = curl_version_info(CURLVERSION_NOW);
+    ASSERT_NE(info, nullptr);
+    std::vector<std::string> protocols;
+    for (const char * const * protocol = info->protocols; *protocol != nullptr; ++protocol)
+        protocols.emplace_back(*protocol);
+
+    std::vector<std::string> expected = {"http"};
+    if (CurlHasTls())
+        expected.emplace_back("https");
+    EXPECT_EQ(protocols, expected);
+}
+
 // ============================================================
 // Tests: database lifecycle
 // ============================================================
