@@ -18,7 +18,7 @@ cmake_minimum_required(VERSION 3.20)
 # This is the single source of truth: it feeds the shared library soname and
 # the ADBC_INFO_DRIVER_VERSION string via src/Version.h.in.  Bump it in the
 # same commit as the release tag.
-project(adbc_driver_firebolt VERSION 0.3.0 LANGUAGES C CXX)
+project(adbc_driver_firebolt VERSION 0.3.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -190,7 +190,12 @@ endif ()
 # run time instead (src/TlsConfig.h).
 set(CURL_CA_BUNDLE "none" CACHE STRING "No compiled-in CA bundle; chosen at run time" FORCE)
 set(CURL_CA_PATH "none" CACHE STRING "No compiled-in CA directory; chosen at run time" FORCE)
-set(HTTP_ONLY ON CACHE BOOL "Disable non-HTTP protocols in curl" FORCE)
+# Every protocol but HTTP(S), named one by one: curl 8.23.0 dropped HTTP_ONLY.
+# The unit test CurlSpeaksOnlyHttp fails if one comes back.
+foreach (_curl_protocol
+         DICT FILE FTP GOPHER IMAP IPFS LDAP LDAPS MQTT POP3 RTSP SMTP TELNET TFTP WEBSOCKETS)
+    set(CURL_DISABLE_${_curl_protocol} ON CACHE BOOL "Only HTTP(S) is used" FORCE)
+endforeach ()
 set(USE_NGHTTP2 OFF CACHE BOOL "Disable HTTP/2 in curl" FORCE)
 set(USE_NGTCP2 OFF CACHE BOOL "Disable HTTP/3 ngtcp2 in curl" FORCE)
 set(USE_QUICHE OFF CACHE BOOL "Disable HTTP/3 quiche in curl" FORCE)
