@@ -22,6 +22,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-09
+
+### Security
+
+- **curl 8.23.0** (was 8.22.0), clearing scanner findings for 20 curl advisories.
+  None reach the driver: its curl is built for HTTP(S) only, without cookies,
+  proxies, HSTS, HTTP authentication or HTTP/2. curl 8.23.0 dropped its
+  `HTTP_ONLY` build switch, so the other protocols are now disabled one by one,
+  and a unit test checks that curl offers only `http` and `https`.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added
@@ -158,7 +168,8 @@ See [README.md](README.md#supported-today). In short: plaintext `http://` only
 pre-obtained bearer token, no discovery-based OAuth, Linux only, and no
 parameterized queries.
 
-[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/adbc-drivers/firebolt/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/adbc-drivers/firebolt/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/adbc-drivers/firebolt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/adbc-drivers/firebolt/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/adbc-drivers/firebolt/releases/tag/v0.1.1
